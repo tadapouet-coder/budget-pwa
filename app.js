@@ -162,25 +162,32 @@ async function loadCurrentMonth() {
 }
 
 async function loadSoldes(mois) {
-  // Lire les cellules de solde
+  // Un seul appel batchGet pour toutes les cellules
   const ranges = [
     `${mois}!I5`, `${mois}!I6`,
     `${mois}!P5`, `${mois}!P6`,
     `${mois}!C5`,
     `${mois}!S5`, `${mois}!S6`
   ];
+  const params = ranges.map(r => `ranges=${encodeURIComponent(r)}`).join('&');
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values:batchGet?${params}&valueRenderOption=UNFORMATTED_VALUE`;
+  const resp = await fetch(url, { headers: { Authorization: 'Bearer ' + accessToken } });
+  if (!resp.ok) {
+    if (resp.status === 401) { logout(); return; }
+    throw new Error('Erreur lecture sheet: ' + resp.status);
+  }
+  const json = await resp.json();
+  const vrs = json.valueRanges || [];
 
-  const results = await Promise.all(ranges.map(r => sheetsGet(r)));
+  const val = (r) => r && r.values && r.values[0] && r.values[0][0] != null ? parseFloat(r.values[0][0]) : 0;
 
-  const val = (r) => r && r.values && r.values[0] && r.values[0][0] ? parseFloat(r.values[0][0]) : 0;
-
-  const persoEom   = val(results[0]);
-  const persoToday = val(results[1]);
-  const jointEom   = val(results[2]);
-  const jointToday = val(results[3]);
-  const epargne    = val(results[4]);
-  const repY       = val(results[5]);
-  const repE       = val(results[6]);
+  const persoEom   = val(vrs[0]);
+  const persoToday = val(vrs[1]);
+  const jointEom   = val(vrs[2]);
+  const jointToday = val(vrs[3]);
+  const epargne    = val(vrs[4]);
+  const repY       = val(vrs[5]);
+  const repE       = val(vrs[6]);
 
   setVal('perso-today', persoToday);
   setVal('perso-eom',   persoEom);
