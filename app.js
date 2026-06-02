@@ -109,7 +109,7 @@ function showApp() {
 // API GOOGLE SHEETS
 // ============================================================
 async function sheetsGet(range) {
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(range)}`;
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(range)}?valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=FORMATTED_STRING`;
   const resp = await fetch(url, {
     headers: { Authorization: 'Bearer ' + accessToken }
   });
@@ -270,18 +270,21 @@ function renderTransactions(rows) {
 }
 
 function renderBudgetBars(rows) {
-  // Charges variables joint = offset 14, lignes variables démarrent en row index 27 (L40 = index 27)
+  // Charges variables joint = colonnes O(14) P(15) Q(16) R(17)
+  // Les lignes 36-38 (index 23-25) sont les budgets RESTANTS calculés par le sheet => à ignorer
+  // Les vraies dépenses commencent ligne 40 = index 27
   const cats = {};
-  const BUDGETS = { 'Courses': 500, 'Carburant/transport': 240 };
-  const BUDGET_AUTRE = 400;
 
   rows.forEach((row, i) => {
-    if (i < 27) return; // avant ligne 40
+    if (i < 27) return; // ignorer lignes 13-39 (revenus, charges fixes, lignes budget restant)
+    const dateVal = row[14];
     const mnt = parseFloat(row[16]) || 0;
-    const cat = row[17] || 'Autre';
-    if (mnt > 0 && row[14]) { // a une date
-      cats[cat] = (cats[cat] || 0) + mnt;
-    }
+    const cat = (row[17] || '').toString().trim();
+    // Ignorer les lignes sans date réelle ou montant nul
+    if (!dateVal || !mnt || !cat) return;
+    // Ignorer les catégories fantômes (Multimédia = label trompeur sur ligne budget restant)
+    if (cat === 'Multimédia') return;
+    cats[cat] = (cats[cat] || 0) + mnt;
   });
 
   const container = document.getElementById('budget-bars');
@@ -290,18 +293,17 @@ function renderBudgetBars(rows) {
     return;
   }
 
-  // Afficher Courses, Carburant, puis regrouper le reste en "Autre"
   const courses = cats['Courses'] || 0;
-  const carbu = cats['Carburant/transport'] || 0;
+  const carbu   = cats['Carburant/transport'] || 0;
   let autre = 0;
   Object.entries(cats).forEach(([k, v]) => {
     if (k !== 'Courses' && k !== 'Carburant/transport') autre += v;
   });
 
   const bars = [
-    { label: 'Courses',    val: courses, budget: 500 },
-    { label: 'Carburant',  val: carbu,   budget: 240 },
-    { label: 'Autre',      val: autre,   budget: 400 }
+    { label: 'Courses',   val: courses, budget: 500 },
+    { label: 'Carburant', val: carbu,   budget: 240 },
+    { label: 'Autre',     val: autre,   budget: 400 }
   ];
 
   container.innerHTML = bars.map(b => {
