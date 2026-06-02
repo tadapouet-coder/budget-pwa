@@ -150,10 +150,8 @@ async function loadCurrentMonth() {
   document.getElementById('header-sub').textContent = mois + ' · chargement...';
 
   try {
-    await Promise.all([
-      loadSoldes(mois),
-      loadTransactions(mois)
-    ]);
+    await loadTransactions(mois);
+    await loadSoldes(mois);
     document.getElementById('header-sub').textContent = mois + ' · à jour';
   } catch(e) {
     document.getElementById('header-sub').textContent = 'Erreur de chargement';
@@ -162,32 +160,73 @@ async function loadCurrentMonth() {
 }
 
 async function loadSoldes(mois) {
-  // Un seul appel batchGet pour toutes les cellules
-  const ranges = [
-    `${mois}!I5`, `${mois}!I6`,
-    `${mois}!P5`, `${mois}!P6`,
-    `${mois}!C5`,
-    `${mois}!S5`, `${mois}!S6`
-  ];
-  const params = ranges.map(r => `ranges=${encodeURIComponent(r)}`).join('&');
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values:batchGet?${params}&valueRenderOption=UNFORMATTED_VALUE`;
-  const resp = await fetch(url, { headers: { Authorization: 'Bearer ' + accessToken } });
-  if (!resp.ok) {
-    if (resp.status === 401) { logout(); return; }
-    throw new Error('Erreur lecture sheet: ' + resp.status);
-  }
-  const json = await resp.json();
-  const vrs = json.valueRanges || [];
+  // On calcule les soldes directement depuis les données brutes déjà chargées
+  // On attend que sheetData soit rempli
+  const rows = sheetData[mois];
+  if (!rows) return;
 
-  const val = (r) => r && r.values && r.values[0] && r.values[0][0] != null ? parseFloat(r.values[0][0]) : 0;
+  const today = new Date(); today.setHours(23,59,59,0);
 
-  const persoEom   = val(vrs[0]);
-  const persoToday = val(vrs[1]);
-  const jointEom   = val(vrs[2]);
-  const jointToday = val(vrs[3]);
-  const epargne    = val(vrs[4]);
-  const repY       = val(vrs[5]);
-  const repE       = val(vrs[6]);
+  // Helpers
+  const mnt  = (row, col) => parseFloat(row[col]) || 0;
+  const date = (row, col) => { const v = row[col]; return v ? new Date(v) : null; };
+  const isPast = (d) => d && d <= today;
+
+  // ÉPARGNE : col A=0, revenus L13+ = index 0+, dépenses L22+ = index 9+
+  const epargne = mnt(rows[0] || [], 2); // Ancien solde ligne 13
+
+  // COMPTE PERSO : col H=7 I=8 J=9 K=10
+  // Revenus : lignes 13-20 (index 0-7), Charges fixes : 22-33 (index 9-20), Variables : 36+ (index 23+)
+  let persoRevEom = 0, persoRevToday = 0;
+  let persoDEom = 0,   persoDToday = 0;
+  rows.forEach((row, i) => {
+    const m = mnt(row, 9); // col J
+    const d = date(row, 7); // col H
+    if (!m) return;
+    if (i >= 0 && i <= 6) { // revenus perso (L13-L19)
+      persoRevEom += m;
+      if (isPast(d)) persoRevToday += m;
+    } else if ((i >= 9 && i <= 19) || i >= 23) { // charges fixes + variables
+      persoDEom += m;
+      if (isPast(d)) persoDToday += m;
+    }
+  });
+  const persoEom   = persoRevEom - persoDEom;
+  const persoToday = persoRevToday - persoDToday;
+
+  // COMPTE JOINT : col O=14 P=15 Q=16 R=17
+  let jointRevEom = 0, jointRevToday = 0;
+  let jointDEom = 0,   jointDToday = 0;
+  rows.forEach((row, i) => {
+    const m = mnt(row, 16); // col Q
+    const d = date(row, 14); // col O
+    if (!m) return;
+    if (i >= 0 && i <= 6) { // revenus joint (L13-L19)
+      jointRevEom += m;
+      if (isPast(d)) jointRevToday += m;
+    } else if ((i >= 9 && i <= 19) || i >= 27) { // charges fixes (L22-L32) + variables réelles (L40+)
+      // Exclure lignes 23-26 (index) = lignes budget restant 36-38
+      if (i >= 23 && i <= 26) return;
+      jointDEom += m;
+      if (isPast(d)) jointDToday += m;
+    }
+  });
+  const jointEom   = jointRevEom - jointDEom;
+  const jointToday = jointRevToday - jointDToday;
+
+  // RÉPARTITION : lire cellules S5/S6 via batchGet (valeurs simples, pas TODAY)
+  let repY = 0, repE = 0;
+  try {
+    const params = [`${mois}!S5`, `${mois}!S6`].map(r => `ranges=${encodeURIComponent(r)}`).join('&');
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values:batchGet?${params}&valueRenderOption=UNFORMATTED_VALUE`;
+    const resp = await fetch(url, { headers: { Authorization: 'Bearer ' + accessToken } });
+    if (resp.ok) {
+      const json = await resp.json();
+      const vrs = json.valueRanges || [];
+      repY = vrs[0]?.values?.[0]?.[0] ? parseFloat(vrs[0].values[0][0]) : 0;
+      repE = vrs[1]?.values?.[0]?.[0] ? parseFloat(vrs[1].values[0][0]) : 0;
+    }
+  } catch(e) { /* silencieux */ }
 
   setVal('perso-today', persoToday);
   setVal('perso-eom',   persoEom);
