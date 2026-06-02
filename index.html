@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Budget">
+  <meta name="theme-color" content="#1D9E75">
+  <title>Budget 2026</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="auth-screen" class="auth-screen">
+  <div class="auth-content">
+    <div class="auth-logo">💰</div>
+    <h1 class="auth-title">Budget 2026</h1>
+    <p class="auth-sub">Connecte-toi avec Google pour accéder à ton suivi budgétaire</p>
+    <button id="btn-login" class="btn-login">
+      <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z"/><path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 6.29C4.672 4.163 6.656 3.58 9 3.58z"/></svg>
+      Se connecter avec Google
+    </button>
+  </div>
+</div>
+
+<div id="app" class="app hidden">
+
+  <div class="header">
+    <div>
+      <div class="header-title">Budget 2026</div>
+      <div class="header-sub" id="header-sub">Chargement...</div>
+    </div>
+    <div style="display:flex;gap:12px;align-items:center">
+      <button id="btn-refresh" class="icon-btn" title="Actualiser"><i class="ti ti-refresh"></i></button>
+      <button id="btn-logout" class="icon-btn" title="Déconnexion"><i class="ti ti-logout"></i></button>
+    </div>
+  </div>
+
+  <div class="nav">
+    <button class="nav-btn active" data-screen="dashboard">
+      <i class="ti ti-layout-dashboard"></i>Dashboard
+    </button>
+    <button class="nav-btn" data-screen="transactions">
+      <i class="ti ti-list"></i>Dépenses
+    </button>
+    <button class="nav-btn" data-screen="stats">
+      <i class="ti ti-chart-pie"></i>Stats
+    </button>
+  </div>
+
+  <!-- DASHBOARD -->
+  <div id="screen-dashboard" class="screen active">
+    <div class="section-title">Soldes du mois</div>
+    <div class="soldes">
+      <div class="solde-card">
+        <div class="solde-account"><i class="ti ti-user"></i> Compte Perso</div>
+        <div class="solde-rows">
+          <div class="solde-row">
+            <span class="solde-row-label">Aujourd'hui</span>
+            <span class="solde-row-val" id="perso-today">—</span>
+          </div>
+          <div class="divider"></div>
+          <div class="solde-row">
+            <span class="solde-row-label">Fin de mois</span>
+            <span class="solde-row-val" id="perso-eom">—</span>
+          </div>
+        </div>
+      </div>
+      <div class="solde-card">
+        <div class="solde-account"><i class="ti ti-users"></i> Compte Joint</div>
+        <div class="solde-rows">
+          <div class="solde-row">
+            <span class="solde-row-label">Aujourd'hui</span>
+            <span class="solde-row-val" id="joint-today">—</span>
+          </div>
+          <div class="divider"></div>
+          <div class="solde-row">
+            <span class="solde-row-label">Fin de mois</span>
+            <span class="solde-row-val" id="joint-eom">—</span>
+          </div>
+        </div>
+      </div>
+      <div class="solde-card wide">
+        <div>
+          <div class="epargne-label"><i class="ti ti-piggy-bank"></i> Épargne</div>
+          <div class="epargne-sub">Solde reporté</div>
+        </div>
+        <div class="epargne-val" id="epargne-val">—</div>
+      </div>
+    </div>
+
+    <div class="section-title">Répartition Yoann / Élodie</div>
+    <div class="repartition">
+      <div class="rep-row">
+        <div class="rep-avatar y">YO</div>
+        <div class="rep-name">Yoann</div>
+        <div class="rep-bar-bg"><div class="rep-bar-fill y" id="rep-bar-y" style="width:50%"></div></div>
+        <div class="rep-amount" id="rep-y">—</div>
+      </div>
+      <div class="rep-row">
+        <div class="rep-avatar e">ÉL</div>
+        <div class="rep-name">Élodie</div>
+        <div class="rep-bar-bg"><div class="rep-bar-fill e" id="rep-bar-e" style="width:50%"></div></div>
+        <div class="rep-amount" id="rep-e">—</div>
+      </div>
+    </div>
+
+    <div class="section-title">Budget charges variables (joint)</div>
+    <div class="budget-bars" id="budget-bars">
+      <div class="budget-loading">Chargement...</div>
+    </div>
+
+    <div class="fab"><button class="fab-btn" id="fab-dashboard"><i class="ti ti-plus"></i>Ajouter</button></div>
+  </div>
+
+  <!-- TRANSACTIONS -->
+  <div id="screen-transactions" class="screen">
+    <div class="compte-tabs">
+      <div class="compte-tab active" data-compte="joint">Compte Joint</div>
+      <div class="compte-tab" data-compte="perso">Perso</div>
+      <div class="compte-tab" data-compte="epargne">Épargne</div>
+    </div>
+    <div id="tx-list" class="transactions">
+      <div class="budget-loading">Chargement...</div>
+    </div>
+    <div class="fab"><button class="fab-btn" id="fab-tx"><i class="ti ti-plus"></i>Ajouter</button></div>
+  </div>
+
+  <!-- STATS -->
+  <div id="screen-stats" class="screen">
+    <div class="section-title">Dépenses par catégorie</div>
+    <div class="budget-bars" id="stats-bars">
+      <div class="budget-loading">Chargement...</div>
+    </div>
+    <div class="fab"><button class="fab-btn" id="fab-stats"><i class="ti ti-plus"></i>Ajouter</button></div>
+  </div>
+
+</div>
+
+<!-- MODAL AJOUT -->
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Nouvelle opération</div>
+
+    <div class="form-group">
+      <label class="form-label">Compte</label>
+      <div class="chips" id="chips-compte">
+        <div class="chip selected" data-val="Compte Joint">Compte Joint</div>
+        <div class="chip" data-val="Compte Perso">Compte Perso</div>
+        <div class="chip" data-val="Épargne">Épargne</div>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Type</label>
+      <div class="chips" id="chips-type">
+        <div class="chip selected" data-val="Charge variable">Charge variable</div>
+        <div class="chip" data-val="Charge fixe">Charge fixe</div>
+        <div class="chip" data-val="Revenu">Revenu</div>
+        <div class="chip" data-val="Dépense">Dépense</div>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Montant (€)</label>
+        <input type="number" placeholder="0.00" id="input-montant" inputmode="decimal" step="0.01" min="0">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Date</label>
+        <input type="date" id="input-date">
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Libellé</label>
+      <input type="text" placeholder="Ex: Leclerc Drive" id="input-libelle" autocomplete="off">
+    </div>
+
+    <div class="form-group" id="group-categorie">
+      <label class="form-label">Catégorie</label>
+      <div class="chips" id="chips-cat">
+        <div class="chip selected" data-val="Courses">Courses</div>
+        <div class="chip" data-val="Carburant/transport">Carburant</div>
+        <div class="chip" data-val="Santé">Santé</div>
+        <div class="chip" data-val="Loisir">Loisir</div>
+        <div class="chip" data-val="Habillement/linge">Habillement</div>
+        <div class="chip" data-val="Animaux">Animaux</div>
+        <div class="chip" data-val="Deco/Maison">Déco/Maison</div>
+        <div class="chip" data-val="Alimentation">Alimentation</div>
+        <div class="chip" data-val="Cadeau">Cadeau</div>
+        <div class="chip" data-val="Charges Fixes">Charges Fixes</div>
+        <div class="chip" data-val="Autre">Autre</div>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Mois</label>
+      <select id="input-mois">
+        <option>Janvier</option><option>Février</option><option>Mars</option>
+        <option>Avril</option><option>Mai</option><option selected>Juin</option>
+        <option>Juillet</option><option>Aout</option><option>Septembre</option>
+        <option>Octobre</option><option>Novembre</option><option>Décembre</option>
+      </select>
+    </div>
+
+    <div id="submit-error" class="submit-error hidden"></div>
+    <button class="submit-btn" id="btn-submit">
+      <i class="ti ti-check"></i> <span id="btn-submit-label">Enregistrer</span>
+    </button>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
