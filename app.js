@@ -236,7 +236,7 @@ function setVal(id, val) {
 
 async function loadTransactions(mois) {
   // Lire toutes les données (lignes 13 à 120, colonnes A à R)
-  const data = await sheetsGet(`${mois}!A13:R120`);
+  const data = await sheetsGet(`${mois}!A13:T120`);
   if (!data || !data.values) return;
 
   sheetData[mois] = data.values;
@@ -295,51 +295,111 @@ function renderTransactions(rows) {
   }).join('');
 }
 
-function renderBudgetBars(rows) {
-  // Charges variables joint = colonnes O(14) P(15) Q(16) R(17)
-  // Les lignes 36-38 (index 23-25) sont les budgets RESTANTS calculés par le sheet => à ignorer
-  // Les vraies dépenses commencent ligne 40 = index 27
-  const cats = {};
+// ============================================================
+// BUDGETS PERSONNALISABLES (stockés en T36/T37/T38 dans le sheet)
+// ============================================================
+async function getBudgetsFromSheet(mois) {
+  const cells = [`${mois}!T36`, `${mois}!T37`, `${mois}!T38`];
+  const params = cells.map(r => `ranges=${encodeURIComponent(r)}`).join('&');
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values:batchGet?${params}&valueRenderOption=UNFORMATTED_VALUE`;
+  try {
+    const resp = await fetch(url, { headers: { Authorization: 'Bearer ' + accessToken } });
+    if (!resp.ok) return { courses: 500, carburant: 240, autre: 400 };
+    const json = await resp.json();
+    const vrs = json.valueRanges || [];
+    return {
+      courses:   parseFloat(vrs[0]?.values?.[0]?.[0]) || 500,
+      carburant: parseFloat(vrs[1]?.values?.[0]?.[0]) || 240,
+      autre:     parseFloat(vrs[2]?.values?.[0]?.[0]) || 400
+    };
+  } catch(e) {
+    return { courses: 500, carburant: 240, autre: 400 };
+  }
+}
 
-  rows.forEach((row, i) => {
-    if (i < 27) return; // ignorer lignes 13-39 (revenus, charges fixes, lignes budget restant)
-    const dateVal = row[14];
-    const mnt = parseFloat(row[16]) || 0;
-    const cat = (row[17] || '').toString().trim();
-    // Ignorer les lignes sans date réelle ou montant nul
-    if (!dateVal || !mnt || !cat) return;
-    // Ignorer les catégories fantômes (Multimédia = label trompeur sur ligne budget restant)
-    if (cat === 'Multimédia') return;
-    cats[cat] = (cats[cat] || 0) + mnt;
+async function saveBudgetsToSheet(mois, courses, carburant, autre) {
+  // Écrire dans T36, T37, T38 via batchUpdate
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values:batchUpdate`;
+  const body = {
+    valueInputOption: 'RAW',
+    data: [
+      { range: `${mois}!T36`, values: [[courses]] },
+      { range: `${mois}!T37`, values: [[carburant]] },
+      { range: `${mois}!T38`, values: [[autre]] }
+    ]
+  };
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
   });
+  if (!resp.ok) throw new Error('Erreur écriture budgets: ' + resp.status);
+}
 
+async function openSettings() {
+  const mois = getCurrentMonthName();
+  const b = await getBudgetsFromSheet(mois);
+  document.getElementById('budget-courses').value   = b.courses;
+  document.getElementById('budget-carburant').value = b.carburant;
+  document.getElementById('budget-autre').value     = b.autre;
+  document.getElementById('modal-settings').classList.add('open');
+}
+
+function closeSettings() {
+  document.getElementById('modal-settings').classList.remove('open');
+}
+
+async function saveSettings() {
+  const courses   = parseFloat(document.getElementById('budget-courses').value)   || 500;
+  const carburant = parseFloat(document.getElementById('budget-carburant').value) || 240;
+  const autre     = parseFloat(document.getElementById('budget-autre').value)     || 400;
+
+  const btn = document.getElementById('btn-save-settings');
+  btn.disabled = true;
+  btn.querySelector('span') ? btn.querySelector('span').textContent = 'Enregistrement...' : null;
+
+  try {
+    const mois = getCurrentMonthName();
+    await saveBudgetsToSheet(mois, courses, carburant, autre);
+    closeSettings();
+    showToast('✅ Budgets mis à jour dans le sheet !');
+    // Recharger pour refléter les nouvelles valeurs
+    sheetData = {};
+    await loadCurrentMonth();
+  } catch(e) {
+    showToast('❌ Erreur: ' + e.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function renderBudgetBars(rows) {
+  // Lire directement depuis les lignes 36-38 du sheet (index 23-25 dans rows) :
+  // col 16 (Q) = budget restant calculé par la formule MAX(0; T-SUMIF)
+  // col 19 (T) = budget total saisi
   const container = document.getElementById('budget-bars');
-  if (Object.keys(cats).length === 0) {
-    container.innerHTML = '<div class="budget-loading">Aucune charge variable</div>';
+
+  if (!rows[23]) {
+    container.innerHTML = '<div class="budget-loading">Aucune donnée budget</div>';
     return;
   }
 
-  const courses = cats['Courses'] || 0;
-  const carbu   = cats['Carburant/transport'] || 0;
-  let autre = 0;
-  Object.entries(cats).forEach(([k, v]) => {
-    if (k !== 'Courses' && k !== 'Carburant/transport') autre += v;
-  });
-
-  const bars = [
-    { label: 'Courses',   val: courses, budget: 500 },
-    { label: 'Carburant', val: carbu,   budget: 240 },
-    { label: 'Autre',     val: autre,   budget: 400 }
+  const budgetData = [
+    { label: 'Courses',   restant: parseFloat(rows[23]?.[16]) || 0, total: parseFloat(rows[23]?.[19]) || 500 },
+    { label: 'Carburant', restant: parseFloat(rows[24]?.[16]) || 0, total: parseFloat(rows[24]?.[19]) || 240 },
+    { label: 'Autre',     restant: parseFloat(rows[25]?.[16]) || 0, total: parseFloat(rows[25]?.[19]) || 400 }
   ];
 
-  container.innerHTML = bars.map(b => {
-    const pct = Math.min(100, Math.round(b.val / b.budget * 100));
+  container.innerHTML = budgetData.map(b => {
+    const depense = b.total - b.restant;
+    const pct = Math.min(100, Math.round(depense / b.total * 100));
     const cls = pct > 90 ? 'bar-over' : pct > 70 ? 'bar-warn' : 'bar-ok';
+    const resteColor = pct > 90 ? 'var(--red)' : pct > 70 ? 'var(--orange)' : 'var(--green-dark)';
     return `
       <div class="budget-row">
         <div class="budget-row-top">
           <span class="budget-cat">${b.label}</span>
-          <span class="budget-amounts"><b>${fmt(b.val)}</b> / ${b.budget} €</span>
+          <span class="budget-amounts"><b>${fmt(depense)}</b> / ${b.total} € &nbsp;<span style="color:${resteColor}">reste ${fmt(b.restant)}</span></span>
         </div>
         <div class="bar-bg"><div class="bar-fill ${cls}" style="width:${pct}%"></div></div>
       </div>`;
@@ -529,6 +589,11 @@ function closeModal() {
 document.getElementById('btn-login').addEventListener('click', login);
 document.getElementById('btn-logout').addEventListener('click', logout);
 document.getElementById('btn-refresh').addEventListener('click', () => { sheetData = {}; loadCurrentMonth(); });
+document.getElementById('btn-settings').addEventListener('click', openSettings);
+document.getElementById('btn-save-settings').addEventListener('click', saveSettings);
+document.getElementById('modal-settings').addEventListener('click', (e) => {
+  if (e.target === document.getElementById('modal-settings')) closeSettings();
+});
 document.getElementById('btn-submit').addEventListener('click', submitDepense);
 
 // FABs

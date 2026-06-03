@@ -36,6 +36,7 @@
     </div>
     <div style="display:flex;gap:12px;align-items:center">
       <button id="btn-refresh" class="icon-btn" title="Actualiser"><i class="ti ti-refresh"></i></button>
+      <button id="btn-settings" class="icon-btn" title="Paramètres"><i class="ti ti-settings"></i></button>
       <button id="btn-logout" class="icon-btn" title="Déconnexion"><i class="ti ti-logout"></i></button>
     </div>
   </div>
@@ -142,6 +143,32 @@
 </div>
 
 <!-- MODAL AJOUT -->
+<!-- MODAL PARAMÈTRES -->
+<div class="modal-overlay" id="modal-settings">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">⚙️ Paramètres budgets</div>
+    <p style="font-size:13px;color:var(--text2);margin-bottom:16px">Définissez vos budgets mensuels pour les charges variables du compte joint.</p>
+
+    <div class="form-group">
+      <label class="form-label">🛒 Budget Courses (€)</label>
+      <input type="number" id="budget-courses" inputmode="decimal" placeholder="500">
+    </div>
+    <div class="form-group">
+      <label class="form-label">⛽ Budget Carburant (€)</label>
+      <input type="number" id="budget-carburant" inputmode="decimal" placeholder="240">
+    </div>
+    <div class="form-group">
+      <label class="form-label">📦 Budget Autre (€)</label>
+      <input type="number" id="budget-autre" inputmode="decimal" placeholder="400">
+    </div>
+
+    <button class="submit-btn" id="btn-save-settings">
+      <i class="ti ti-check"></i> Enregistrer
+    </button>
+  </div>
+</div>
+
 <div class="modal-overlay" id="modal">
   <div class="modal">
     <div class="modal-handle"></div>
