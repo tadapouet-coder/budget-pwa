@@ -342,6 +342,25 @@ async function openSettings() {
   document.getElementById('budget-courses').value   = b.courses;
   document.getElementById('budget-carburant').value = b.carburant;
   document.getElementById('budget-autre').value     = b.autre;
+
+  // Mettre à jour le label du bouton mois suivant
+  const nextName = getNextMonthName();
+  document.getElementById('btn-prepare-label').textContent = 'Préparer ' + nextName + ' 2026';
+
+  // Vérifier si l'onglet suivant existe déjà
+  const exists = await sheetExists(nextName);
+  const btn = document.getElementById('btn-prepare-month');
+  const info = document.getElementById('next-month-info');
+  if (exists) {
+    btn.disabled = true;
+    btn.style.opacity = '0.5';
+    info.textContent = "L'onglet " + nextName + " existe déjà dans le sheet.";
+  } else {
+    btn.disabled = false;
+    btn.style.opacity = '1';
+    info.textContent = 'Crée automatiquement l\'onglet ' + nextName + ' à partir de ' + mois + '.';
+  }
+
   document.getElementById('modal-settings').classList.add('open');
 }
 
@@ -584,6 +603,161 @@ function closeModal() {
 }
 
 // ============================================================
+// NEXT MONTH HELPERS
+function getNextMonthName() {
+  const months = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Aout','Septembre','Octobre','Novembre','Décembre'];
+  return months[(new Date().getMonth() + 1) % 12];
+}
+
+async function sheetExists(name) {
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}?fields=sheets.properties.title`;
+  try {
+    const resp = await fetch(url, { headers: { Authorization: 'Bearer ' + accessToken } });
+    if (!resp.ok) return false;
+    const json = await resp.json();
+    return (json.sheets || []).some(s => s.properties.title === name);
+  } catch(e) { return false; }
+}
+
+function addMonths(dateStr, n) {
+  // dateStr = "DD/MM/YYYY", retourne "DD/MM/YYYY" avec +n mois
+  if (!dateStr || typeof dateStr !== 'string') return dateStr;
+  const parts = dateStr.split('/');
+  if (parts.length !== 3) return dateStr;
+  const [d, m, y] = parts.map(Number);
+  const dt = new Date(y, m - 1 + n, d);
+  const dd = String(dt.getDate()).padStart(2, '0');
+  const mm = String(dt.getMonth() + 1).padStart(2, '0');
+  const yy = dt.getFullYear();
+  return `${dd}/${mm}/${yy}`;
+}
+
+async function prepareNextMonth() {
+  const moisActuel = getCurrentMonthName();
+  const moisSuivant = getNextMonthName();
+  const btn = document.getElementById('btn-prepare-month');
+  const origLabel = document.getElementById('btn-prepare-label').textContent;
+
+  btn.disabled = true;
+  document.getElementById('btn-prepare-label').textContent = 'Préparation en cours...';
+
+  try {
+    // 1. Récupérer le sheetId de l'onglet courant
+    const metaResp = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}?fields=sheets.properties`,
+      { headers: { Authorization: 'Bearer ' + accessToken } }
+    );
+    const meta = await metaResp.json();
+    const currentSheet = meta.sheets.find(s => s.properties.title === moisActuel);
+    if (!currentSheet) throw new Error('Onglet ' + moisActuel + ' introuvable');
+    const sourceSheetId = currentSheet.properties.sheetId;
+    const sourceIndex   = currentSheet.properties.index;
+
+    // 2. Copier l'onglet (duplicateSheet)
+    const dupResp = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}:batchUpdate`,
+      {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ requests: [{
+          duplicateSheet: {
+            sourceSheetId: sourceSheetId,
+            insertSheetIndex: sourceIndex + 1,
+            newSheetName: moisSuivant
+          }
+        }]})
+      }
+    );
+    if (!dupResp.ok) throw new Error('Erreur copie onglet: ' + dupResp.status);
+
+    // 3. Lire les soldes fin de mois pour les anciens soldes
+    const soldeResp = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values:batchGet?` +
+      `ranges=${encodeURIComponent(moisActuel+'!C5')}&ranges=${encodeURIComponent(moisActuel+'!I5')}&ranges=${encodeURIComponent(moisActuel+'!P5')}` +
+      `&valueRenderOption=UNFORMATTED_VALUE`,
+      { headers: { Authorization: 'Bearer ' + accessToken } }
+    );
+    const soldeJson = await soldeResp.json();
+    const vrs = soldeJson.valueRanges || [];
+    const soldeEpargne = parseFloat(vrs[0]?.values?.[0]?.[0]) || 0;
+    const soldePerso   = parseFloat(vrs[1]?.values?.[0]?.[0]) || 0;
+    const soldeJoint   = parseFloat(vrs[2]?.values?.[0]?.[0]) || 0;
+
+    // 4. Lire les charges fixes Perso (H22:J36) et Joint (O22:Q33) pour décaler les dates
+    const fixeResp = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values:batchGet?` +
+      `ranges=${encodeURIComponent(moisSuivant+'!H22:J36')}&ranges=${encodeURIComponent(moisSuivant+'!O22:Q33')}` +
+      `&valueRenderOption=FORMATTED_VALUE`,
+      { headers: { Authorization: 'Bearer ' + accessToken } }
+    );
+    const fixeJson  = await fixeResp.json();
+    const fixePerso = (fixeJson.valueRanges?.[0]?.values || []);
+    const fixeJoint = (fixeJson.valueRanges?.[1]?.values || []);
+
+    // Décaler les dates (+1 mois) dans col H (index 0 de H22:J36) et O (index 0 de O22:Q33)
+    const newFixePerso = fixePerso.map(row => {
+      if (!row || !row[0]) return row;
+      return [addMonths(row[0], 1), row[1] || '', row[2] || ''];
+    });
+    const newFixeJoint = fixeJoint.map(row => {
+      if (!row || !row[0]) return row;
+      return [addMonths(row[0], 1), row[1] || '', row[2] || ''];
+    });
+
+    // 5. Préparer toutes les modifications via batchUpdate values
+    const updates = [
+      // Nom du mois en B1
+      { range: `${moisSuivant}!B1`, values: [[moisSuivant]] },
+      // Anciens soldes
+      { range: `${moisSuivant}!C13`, values: [[soldeEpargne]] },
+      { range: `${moisSuivant}!J13`, values: [[soldePerso]] },
+      { range: `${moisSuivant}!Q13`, values: [[soldeJoint]] },
+      // Effacer montants revenus Perso (col J = index 2 de H14:J19)
+      { range: `${moisSuivant}!J14:J19`, values: [[''],[''],[''],[''],[''],['']].map(v => v) },
+      // Effacer montants revenus Joint (col Q)
+      { range: `${moisSuivant}!Q14:Q19`, values: [[''],[''],[''],[''],[''],['']].map(v => v) },
+      // Charges fixes avec dates décalées
+      { range: `${moisSuivant}!H22:J36`, values: newFixePerso.length ? newFixePerso : [[]] },
+      { range: `${moisSuivant}!O22:Q33`, values: newFixeJoint.length ? newFixeJoint : [[]] },
+    ];
+
+    const updateResp = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values:batchUpdate`,
+      {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ valueInputOption: 'USER_ENTERED', data: updates })
+      }
+    );
+    if (!updateResp.ok) throw new Error('Erreur mise à jour: ' + updateResp.status);
+
+    // 6. Effacer les charges variables via batchUpdate (clearValues)
+    const clearResp = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values:batchClear`,
+      {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ranges: [
+          `${moisSuivant}!H36:K300`,  // variables Perso
+          `${moisSuivant}!O39:R300`,  // variables Joint
+          `${moisSuivant}!J14:J19`,   // revenus Perso montants
+          `${moisSuivant}!Q14:Q19`,   // revenus Joint montants
+        ]})
+      }
+    );
+    if (!clearResp.ok) throw new Error('Erreur effacement: ' + clearResp.status);
+
+    closeSettings();
+    showToast('✅ Onglet ' + moisSuivant + ' créé !', 3000);
+
+  } catch(e) {
+    showToast('❌ ' + e.message, 4000);
+    console.error(e);
+    btn.disabled = false;
+    document.getElementById('btn-prepare-label').textContent = origLabel;
+  }
+}
+
 // EVENTS
 // ============================================================
 document.getElementById('btn-login').addEventListener('click', login);
@@ -591,6 +765,7 @@ document.getElementById('btn-logout').addEventListener('click', logout);
 document.getElementById('btn-refresh').addEventListener('click', () => { sheetData = {}; loadCurrentMonth(); });
 document.getElementById('btn-settings').addEventListener('click', openSettings);
 document.getElementById('btn-save-settings').addEventListener('click', saveSettings);
+document.getElementById('btn-prepare-month').addEventListener('click', prepareNextMonth);
 document.getElementById('modal-settings').addEventListener('click', (e) => {
   if (e.target === document.getElementById('modal-settings')) closeSettings();
 });

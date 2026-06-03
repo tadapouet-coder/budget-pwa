@@ -147,8 +147,8 @@
 <div class="modal-overlay" id="modal-settings">
   <div class="modal">
     <div class="modal-handle"></div>
-    <div class="modal-title">⚙️ Paramètres budgets</div>
-    <p style="font-size:13px;color:var(--text2);margin-bottom:16px">Définissez vos budgets mensuels pour les charges variables du compte joint.</p>
+    <div class="modal-title">⚙️ Paramètres</div>
+    <p style="font-size:13px;color:var(--text2);margin-bottom:16px">Budgets mensuels pour les charges variables du compte joint.</p>
 
     <div class="form-group">
       <label class="form-label">🛒 Budget Courses (€)</label>
@@ -164,7 +164,15 @@
     </div>
 
     <button class="submit-btn" id="btn-save-settings">
-      <i class="ti ti-check"></i> Enregistrer
+      <i class="ti ti-check"></i> Enregistrer les budgets
+    </button>
+
+    <div style="height:1px;background:var(--border);margin:20px 0"></div>
+
+    <div style="font-size:13px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:10px">📅 Mois suivant</div>
+    <p style="font-size:13px;color:var(--text2);margin-bottom:12px" id="next-month-info">Prépare automatiquement l'onglet du mois suivant dans Google Sheets.</p>
+    <button class="submit-btn" id="btn-prepare-month" style="background:var(--blue)">
+      <i class="ti ti-calendar-plus"></i> <span id="btn-prepare-label">Préparer Juillet 2026</span>
     </button>
   </div>
 </div>
