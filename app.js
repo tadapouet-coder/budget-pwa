@@ -541,7 +541,17 @@ function fmt(val) {
 function fmtDate(d) {
   if (!d) return '';
   try {
-    const date = new Date(d);
+    let date;
+    if (typeof d === 'string' && d.match(/^\d{2}\/\d{2}\/\d{4}$/)) {
+      // Format DD/MM/YYYY → parser manuellement pour éviter l'interprétation MM/DD
+      const [day, month, year] = d.split('/');
+      date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+    } else if (typeof d === 'string' && d.match(/^\d{4}-\d{2}-\d{2}/)) {
+      // Format ISO YYYY-MM-DD
+      date = new Date(d);
+    } else {
+      date = new Date(d);
+    }
     if (isNaN(date)) return d;
     return date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
   } catch { return d; }
