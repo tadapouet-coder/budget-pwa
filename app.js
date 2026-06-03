@@ -150,10 +150,8 @@ async function loadCurrentMonth() {
   document.getElementById('header-sub').textContent = mois + ' · chargement...';
 
   try {
-    await Promise.all([
-      loadTransactions(mois),
-      loadSoldes(mois)
-    ]);
+    await loadTransactions(mois);
+    await loadSoldes(mois);
     document.getElementById('header-sub').textContent = mois + ' · à jour';
   } catch(e) {
     document.getElementById('header-sub').textContent = 'Erreur de chargement';
@@ -162,64 +160,108 @@ async function loadCurrentMonth() {
 }
 
 async function loadSoldes(mois) {
-  // Lire toutes les cellules calculées en un seul appel
-  // On utilise FORMULA pour forcer Google à retourner les valeurs calculées (même avec TODAY())
-  const cellules = [
-    `${mois}!I5`,  // Solde fin de mois Perso
-    `${mois}!I6`,  // Solde aujourd'hui Perso
-    `${mois}!P5`,  // Solde fin de mois Joint
-    `${mois}!P6`,  // Solde aujourd'hui Joint
-    `${mois}!C5`,  // Épargne
-    `${mois}!S5`,  // Répartition Yoann
-    `${mois}!S6`,  // Répartition Élodie
-  ];
-  const params = cellules.map(r => `ranges=${encodeURIComponent(r)}`).join('&');
-  // FORMULA render permet d'obtenir les vraies valeurs calculées par les formules TODAY()/SUMIF
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values:batchGet?${params}&valueRenderOption=FORMULA`;
-  const resp = await fetch(url, { headers: { Authorization: 'Bearer ' + accessToken } });
-  if (!resp.ok) {
-    if (resp.status === 401) { logout(); return; }
-    throw new Error('Erreur lecture sheet: ' + resp.status);
-  }
-  const json = await resp.json();
-  const vrs = json.valueRanges || [];
+  const rows = sheetData[mois];
+  if (!rows) return;
 
-  // Extraire valeur numérique : si c'est une formule (commence par =), on relit en UNFORMATTED
-  const getRaw = (vr) => {
-    const v = vr?.values?.[0]?.[0];
-    if (v === undefined || v === null || v === '') return 0;
-    // Si c'est une formule, retourner 0 (sera récupéré autrement)
-    if (typeof v === 'string' && v.startsWith('=')) return null;
-    return parseFloat(v) || 0;
-  };
+  // rows[0] = ligne 13 du sheet (A13:R13)
+  // Structure connue :
+  //   Perso  : date=col7(H), lib=col8(I), mnt=col9(J)
+  //   Joint  : date=col14(O), lib=col15(P), mnt=col16(Q)
+  //
+  // Lignes sheet → index dans rows (rows[0]=L13) :
+  //   L13 = index 0  → Ancien Solde (toujours compté)
+  //   L14-L19 = index 1-6  → Revenus
+  //   L20-L21 = index 7-8  → Entêtes (ignorer)
+  //   L22-L33 = index 9-20 → Charges fixes
+  //   L34-L39 = index 21-26 → Entêtes + budgets restants (ignorer)
+  //   L40+    = index 27+  → Charges variables réelles
 
-  let persoEom   = getRaw(vrs[0]);
-  let persoToday = getRaw(vrs[1]);
-  let jointEom   = getRaw(vrs[2]);
-  let jointToday = getRaw(vrs[3]);
-  let epargne    = getRaw(vrs[4]);
-  let repY       = getRaw(vrs[5]);
-  let repE       = getRaw(vrs[6]);
+  const today = new Date();
+  today.setHours(23, 59, 59, 0);
 
-  // Si certaines valeurs sont null (formules non calculées), relire en UNFORMATTED_VALUE
-  const nullCells = [];
-  [persoEom, persoToday, jointEom, jointToday, epargne, repY, repE].forEach((v, i) => {
-    if (v === null) nullCells.push(i);
-  });
-  if (nullCells.length > 0) {
-    const url2 = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values:batchGet?${params}&valueRenderOption=UNFORMATTED_VALUE`;
-    const resp2 = await fetch(url2, { headers: { Authorization: 'Bearer ' + accessToken } });
-    if (resp2.ok) {
-      const json2 = await resp2.json();
-      const vrs2 = json2.valueRanges || [];
-      const vals = [persoEom, persoToday, jointEom, jointToday, epargne, repY, repE];
-      nullCells.forEach(i => {
-        const v = vrs2[i]?.values?.[0]?.[0];
-        vals[i] = v != null ? parseFloat(v) || 0 : 0;
-      });
-      [persoEom, persoToday, jointEom, jointToday, epargne, repY, repE] = vals;
+  // Parse une date depuis l'API (format ISO ou DD/MM/YYYY ou serial Excel)
+  function parseDate(v) {
+    if (!v) return null;
+    if (typeof v === 'number') {
+      // Serial Excel : 1 = 1900-01-01
+      const d = new Date(Date.UTC(1899, 11, 30) + v * 86400000);
+      return d;
     }
+    // Format ISO : "2026-06-05T00:00:00" ou "2026-06-05"
+    if (typeof v === 'string' && v.match(/^\d{4}-\d{2}-\d{2}/)) {
+      return new Date(v);
+    }
+    // Format DD/MM/YYYY
+    if (typeof v === 'string' && v.match(/^\d{2}\/\d{2}\/\d{4}$/)) {
+      const [d, m, y] = v.split('/');
+      return new Date(`${y}-${m}-${d}`);
+    }
+    return null;
   }
+
+  function calcSoldes(dateCol, mntCol, ancienSoldeIdx, revIdx, fixeIdx, varIdx) {
+    // ancienSoldeIdx : index de la ligne "Ancien Solde"
+    // revIdx : [start, end] indices revenus
+    // fixeIdx : [start, end] indices charges fixes
+    // varIdx : index de début des charges variables réelles
+    let eom = 0, tod = 0;
+
+    rows.forEach((row, i) => {
+      const m = parseFloat(row[mntCol]) || 0;
+      if (!m) return;
+      const d = parseDate(row[dateCol]);
+      const past = d && d <= today;
+
+      if (i === ancienSoldeIdx) {
+        // Ancien solde : toujours compté dans les deux
+        eom += m; if (past) tod += m;
+      } else if (i >= revIdx[0] && i <= revIdx[1]) {
+        // Revenus : positifs
+        eom += m; if (past) tod += m;
+      } else if ((i >= fixeIdx[0] && i <= fixeIdx[1]) || i >= varIdx) {
+        // Dépenses : soustraites
+        eom -= m; if (past) tod -= m;
+      }
+    });
+    return { eom, tod };
+  }
+
+  // PERSO : date=col7, mnt=col9
+  // Ancien solde = index 0 (L13)
+  // Revenus = index 1-6 (L14-L19)
+  // Charges fixes = index 9-20 (L22-L33)
+  // Charges variables = index 23+ (L36+) — L36-L38 n'existent pas dans perso, tout est réel
+  const perso = calcSoldes(7, 9, 0, [1, 6], [9, 20], 23);
+
+  // JOINT : date=col14, mnt=col16
+  // Ancien solde = index 0 (L13)
+  // Revenus = index 1-6 (L14-L19)
+  // Charges fixes = index 9-20 (L22-L33)
+  // Charges variables réelles = index 27+ (L40+) — index 23-26 = budgets restants à IGNORER
+  const joint = calcSoldes(14, 16, 0, [1, 6], [9, 20], 27);
+
+  const persoEom   = perso.eom;
+  const persoToday = perso.tod;
+  const jointEom   = joint.eom;
+  const jointToday = joint.tod;
+
+  // ÉPARGNE : lire C5 directement (valeur simple, pas de TODAY)
+  let epargne = 0;
+  // RÉPARTITION : lire S5/S6 directement
+  let repY = 0, repE = 0;
+  try {
+    const cells = [`${mois}!C5`, `${mois}!S5`, `${mois}!S6`];
+    const params = cells.map(r => `ranges=${encodeURIComponent(r)}`).join('&');
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values:batchGet?${params}&valueRenderOption=UNFORMATTED_VALUE`;
+    const resp = await fetch(url, { headers: { Authorization: 'Bearer ' + accessToken } });
+    if (resp.ok) {
+      const json = await resp.json();
+      const vrs = json.valueRanges || [];
+      epargne = parseFloat(vrs[0]?.values?.[0]?.[0]) || 0;
+      repY    = parseFloat(vrs[1]?.values?.[0]?.[0]) || 0;
+      repE    = parseFloat(vrs[2]?.values?.[0]?.[0]) || 0;
+    }
+  } catch(e) { /* silencieux */ }
 
   setVal('perso-today', persoToday);
   setVal('perso-eom',   persoEom);
