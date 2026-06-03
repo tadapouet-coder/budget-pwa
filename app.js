@@ -160,19 +160,18 @@ async function loadCurrentMonth() {
 }
 
 async function loadSoldes(mois) {
-  // Lire les soldes directement depuis l'API spreadsheets (includeGridData)
-  // pour obtenir les vraies valeurs calculées par les formules TODAY()/SUMIF du sheet
+  // Lire les cellules de solde avec FORMATTED_VALUE
+  // Retourne exactement ce que Google Sheets affiche, formules TODAY()/SUMIF évaluées côté serveur
   // I5=fin de mois Perso, I6=aujourd'hui Perso
-  // P5=fin de mois Joint, P6=aujourd'hui Joint  (NB: ligne 5=fin mois, ligne 6=aujourd'hui)
-  // C5=Épargne, S5=Yoann, S6=Élodie
+  // P5=fin de mois Joint (-269€), P6=aujourd'hui Joint (2412€)
   const cellRanges = [
-    `${mois}!I5`, `${mois}!I6`,
-    `${mois}!P5`, `${mois}!P6`,
-    `${mois}!C5`,
-    `${mois}!S5`, `${mois}!S6`
+    mois + '!I5', mois + '!I6',
+    mois + '!P5', mois + '!P6',
+    mois + '!C5',
+    mois + '!S5', mois + '!S6'
   ];
-  const rangeParams = cellRanges.map(r => `ranges=${encodeURIComponent(r)}`).join('&');
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}?${rangeParams}&fields=sheets.data.rowData.values.effectiveValue&includeGridData=true`;
+  const rangeParams = cellRanges.map(function(r) { return 'ranges=' + encodeURIComponent(r); }).join('&');
+  const url = 'https://sheets.googleapis.com/v4/spreadsheets/' + SPREADSHEET_ID + '/values:batchGet?' + rangeParams + '&valueRenderOption=FORMATTED_VALUE';
 
   let persoEom = 0, persoToday = 0, jointEom = 0, jointToday = 0;
   let epargne = 0, repY = 0, repE = 0;
@@ -181,37 +180,35 @@ async function loadSoldes(mois) {
     const resp = await fetch(url, { headers: { Authorization: 'Bearer ' + accessToken } });
     if (!resp.ok) throw new Error('Erreur lecture sheet: ' + resp.status);
     const json = await resp.json();
+    const vrs = json.valueRanges || [];
 
-    // Chaque range demandé → un élément dans sheets[].data[]
-    const vals = [];
-    (json.sheets || []).forEach(sheet => {
-      (sheet.data || []).forEach(data => {
-        const row = (data.rowData || [])[0];
-        const cell = (row?.values || [])[0];
-        const ev = cell?.effectiveValue;
-        const v = ev?.numberValue ?? ev?.stringValue ?? 0;
-        vals.push(parseFloat(v) || 0);
-      });
-    });
-
-    if (vals.length >= 7) {
-      // I5 = fin de mois Perso, I6 = aujourd'hui Perso
-      persoEom   = vals[0];
-      persoToday = vals[1];
-      // P5 = fin de mois Joint, P6 = aujourd'hui Joint
-      jointEom   = vals[2];
-      jointToday = vals[3];
-      epargne    = vals[4];
-      repY       = vals[5];
-      repE       = vals[6];
+    function parseFormatted(vr) {
+      const raw = vr && vr.values && vr.values[0] && vr.values[0][0];
+      if (raw === undefined || raw === null || raw === '') return 0;
+      if (typeof raw === 'number') return raw;
+      // Nettoyer valeur formatée FR : "2 412,18 €" "-269,09€" etc.
+      const cleaned = String(raw)
+        .replace(/[\u00a0\u202f ]/g, '') // espaces et insécables
+        .replace(/€/g, '')
+        .replace(/,/g, '.')
+        .replace(/[^0-9.\-]/g, '');
+      return parseFloat(cleaned) || 0;
     }
+
+    persoEom   = parseFormatted(vrs[0]);
+    persoToday = parseFormatted(vrs[1]);
+    jointEom   = parseFormatted(vrs[2]);
+    jointToday = parseFormatted(vrs[3]);
+    epargne    = parseFormatted(vrs[4]);
+    repY       = parseFormatted(vrs[5]);
+    repE       = parseFormatted(vrs[6]);
+
   } catch(e) {
     console.error('loadSoldes error:', e);
-    showToast('❌ Erreur soldes: ' + e.message);
+    showToast('Erreur soldes: ' + e.message);
     return;
   }
 
-  // Afficher — attention l'app montre "Aujourd'hui" en haut et "Fin de mois" en bas
   setVal('perso-today', persoToday);
   setVal('perso-eom',   persoEom);
   setVal('joint-today', jointToday);
@@ -219,7 +216,6 @@ async function loadSoldes(mois) {
 
   document.getElementById('epargne-val').textContent = fmt(epargne);
 
-  // Répartition
   const total = Math.abs(repY) + Math.abs(repE);
   if (total > 0) {
     const pctY = Math.round(Math.abs(repY) / total * 100);
