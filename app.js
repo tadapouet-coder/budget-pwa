@@ -409,18 +409,33 @@ function renderBudgetBars(rows) {
     { label: 'Autre',     restant: parseFloat(rows[25]?.[16]) || 0, total: parseFloat(rows[25]?.[19]) || 400 }
   ];
 
-  container.innerHTML = budgetData.map(b => {
+  // Indicateur temporel : position dans le mois (ex: 15 juin / 30 jours = 50%)
+  const now = new Date();
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const dayOfMonth = now.getDate();
+  const pctMois = Math.round(dayOfMonth / daysInMonth * 100);
+
+  container.innerHTML = `
+    <div style="padding:8px 14px 6px;display:flex;align-items:center;justify-content:space-between;border-bottom:0.5px solid var(--border)">
+      <span style="font-size:11px;color:var(--text2)">📅 Avancement du mois</span>
+      <span style="font-size:11px;font-weight:600;color:var(--text2)">${dayOfMonth} / ${daysInMonth} jours · <span style="color:var(--green-dark)">${pctMois}%</span></span>
+    </div>` +
+  budgetData.map(b => {
     const depense = b.total - b.restant;
     const pct = Math.min(100, Math.round(depense / b.total * 100));
-    const cls = pct > 90 ? 'bar-over' : pct > 70 ? 'bar-warn' : 'bar-ok';
-    const resteColor = pct > 90 ? 'var(--red)' : pct > 70 ? 'var(--orange)' : 'var(--green-dark)';
+    // Couleur selon position vs avancement du mois
+    const cls = pct > pctMois + 15 ? 'bar-over' : pct > pctMois ? 'bar-warn' : 'bar-ok';
+    const resteColor = pct > pctMois + 15 ? 'var(--red)' : pct > pctMois ? 'var(--orange)' : 'var(--green-dark)';
     return `
       <div class="budget-row">
         <div class="budget-row-top">
           <span class="budget-cat">${b.label}</span>
           <span class="budget-amounts"><b>${fmt(depense)}</b> / ${b.total} € &nbsp;<span style="color:${resteColor}">reste ${fmt(b.restant)}</span></span>
         </div>
-        <div class="bar-bg"><div class="bar-fill ${cls}" style="width:${pct}%"></div></div>
+        <div class="bar-bg" style="position:relative">
+          <div class="bar-fill ${cls}" style="width:${pct}%"></div>
+          <div style="position:absolute;top:-2px;bottom:-2px;left:${pctMois}%;width:2px;background:var(--text2);opacity:0.4;border-radius:1px" title="Avancement du mois"></div>
+        </div>
       </div>`;
   }).join('');
 }
