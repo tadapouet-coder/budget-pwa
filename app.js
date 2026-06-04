@@ -839,22 +839,26 @@ async function prepareNextMonth() {
 }
 
 
+// ============================================================
 // EVENTS
 // ============================================================
 
-});
-document.getElementById('input-photo').addEventListener('change', (e) => {
-  if (e.target.files?.[0]) scanTicket(e.target.files[0]);
-});
 document.getElementById('btn-login').addEventListener('click', login);
 document.getElementById('btn-logout').addEventListener('click', logout);
-document.getElementById('btn-refresh').addEventListener('click', () => { sheetData = {}; loadCurrentMonth(); });
+
+document.getElementById('btn-refresh').addEventListener('click', () => {
+  sheetData = {};
+  loadCurrentMonth();
+});
+
 document.getElementById('btn-settings').addEventListener('click', openSettings);
 document.getElementById('btn-save-settings').addEventListener('click', saveSettings);
 document.getElementById('btn-prepare-month').addEventListener('click', prepareNextMonth);
+
 document.getElementById('modal-settings').addEventListener('click', (e) => {
   if (e.target === document.getElementById('modal-settings')) closeSettings();
 });
+
 document.getElementById('btn-submit').addEventListener('click', submitDepense);
 
 // FABs
@@ -878,6 +882,7 @@ document.querySelectorAll('.compte-tab').forEach(tab => {
     document.querySelectorAll('.compte-tab').forEach(t => t.classList.remove('active'));
     tab.classList.add('active');
     currentCompteFilter = tab.dataset.compte;
+
     const mois = getCurrentMonthName();
     if (sheetData[mois]) renderTransactions(sheetData[mois]);
   });
@@ -893,21 +898,17 @@ document.querySelectorAll('.chips').forEach(group => {
   });
 });
 
-// AUTO CATEGORIE SUR SAISIE LIBELLE
+// AUTO CATEGORIE
 document.getElementById('input-libelle').addEventListener('input', (e) => {
-
   const cat = autoCategorie(e.target.value);
   if (!cat) return;
 
   document.querySelectorAll('#chips-cat .chip').forEach(chip => {
     chip.classList.toggle('selected', chip.dataset.val === cat);
   });
-
 });
 
-
-
-// Fermer modal en cliquant outside
+// Fermer modal
 document.getElementById('modal').addEventListener('click', (e) => {
   if (e.target === document.getElementById('modal')) closeModal();
 });
