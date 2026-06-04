@@ -621,7 +621,7 @@ function openModal() {
   document.getElementById('input-montant').value = '';
   document.getElementById('input-libelle').value = '';
   document.getElementById('scan-preview').classList.add('hidden');
-  document.getElementById('scan-btn').innerHTML = '<i class="ti ti-camera"></i> Scanner un ticket de caisse';
+  document.getElementById('btn-scan').innerHTML = '<i class="ti ti-camera"></i> Scanner un ticket de caisse';
   document.getElementById('input-photo').value = '';
 }
 
@@ -789,96 +789,108 @@ async function prepareNextMonth() {
 // SCAN TICKET DE CAISSE
 // ============================================================
 async function scanTicket(file) {
+
   if (!file) return;
 
   const preview = document.getElementById('scan-preview');
   const status  = document.getElementById('scan-status');
   const img     = document.getElementById('scan-img');
 
-  // Afficher la prévisualisation
+  // preview image
   const reader = new FileReader();
   reader.onload = (e) => { img.src = e.target.result; };
   reader.readAsDataURL(file);
+
   preview.classList.remove('hidden');
   status.className = 'scan-status';
-  status.innerHTML = '<i class="ti ti-loader-2 spin"></i> Analyse du ticket...';
+  status.innerHTML = '<i class="ti ti-loader-2 spin"></i> Analyse en cours...';
 
   try {
-    // Convertir en base64
-    const base64 = await new Promise((resolve, reject) => {
-      const r = new FileReader();
-      r.onload  = () => resolve(r.result.split(',')[1]);
-      r.onerror = reject;
-      r.readAsDataURL(file);
-    });
 
-    // Déterminer le type MIME
-    const mimeType = file.type || 'image/jpeg';
+    const result = await Tesseract.recognize(file, 'fra');
+    const text = result.data.text;
 
-    // Appel API Claude
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 500,
-        messages: [{
-          role: 'user',
-          content: [
-            {
-              type: 'image',
-              source: { type: 'base64', media_type: mimeType, data: base64 }
-            },
-            {
-              type: 'text',
-              text: `Analyse ce ticket de caisse et extrais les informations suivantes en JSON uniquement, sans texte autour :
-{
-  "libelle": "nom du magasin ou commerce (ex: Leclerc, Carrefour, Pharmacie...)",
-  "montant": 12.50,
-  "date": "DD/MM/YYYY",
-  "categorie": "une parmi: Courses, Carburant/transport, Santé, Loisir, Habillement/linge, Animaux, Deco/Maison, Alimentation, Cadeau, Autre"
-}
-Si une information est introuvable, mets null. Le montant doit être le total TTC final payé, sans le signe €.`
-            }
-          ]
-        }]
-      })
-    });
+    console.log("OCR:", text);
 
-    if (!response.ok) throw new Error('Erreur API: ' + response.status);
-    const data = await response.json();
-    const text = data.content?.[0]?.text || '';
+    // --------------------------
+    // EXTRACTION INTELLIGENTE
+    // --------------------------
 
-    // Parser le JSON retourné
-    const clean = text.replace(/```json|```/g, '').trim();
-    const parsed = JSON.parse(clean);
-
-    // Remplir les champs
-    if (parsed.libelle)  document.getElementById('input-libelle').value  = parsed.libelle;
-    if (parsed.montant)  document.getElementById('input-montant').value  = parsed.montant;
-    if (parsed.date) {
-      // Convertir DD/MM/YYYY → YYYY-MM-DD pour l'input date
-      const [d, m, y] = parsed.date.split('/');
-      if (d && m && y) document.getElementById('input-date').value = `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
+    // Montant (plus robuste)
+    let montant = null;
+    const montants = text.match(/\d+[.,]\d{2}/g);
+    if (montants) {
+      montant = montants[montants.length - 1].replace(',', '.');
     }
-    if (parsed.categorie) {
-      // Sélectionner le bon chip catégorie
+
+    // Date
+    let date = null;
+    const dateMatch = text.match(/(\d{2}\/\d{2}\/\d{4})/);
+    if (dateMatch) date = dateMatch[0];
+
+    // Libellé = première ligne exploitable
+    const lignes = text
+      .split('\n')
+      .map(l => l.trim())
+      .filter(l => l.length > 2);
+
+    let libelle = lignes[0] || '';
+
+    // --------------------------
+    // AUTO CATEGORIE
+    // --------------------------
+
+    let categorieAuto = null;
+
+    const lower = libelle.toLowerCase();
+
+    if (lower.includes("leclerc") || lower.includes("carrefour")) {
+      categorieAuto = "Courses";
+    }
+
+    if (lower.includes("essence") || lower.includes("total") || lower.includes("station")) {
+      categorieAuto = "Carburant/transport";
+    }
+
+    // --------------------------
+    // REMPLISSAGE
+    // --------------------------
+
+    if (montant) {
+      document.getElementById('input-montant').value = montant;
+    }
+
+    if (date) {
+      const [d,m,y] = date.split('/');
+      document.getElementById('input-date').value = `${y}-${m}-${d}`;
+    }
+
+    if (libelle) {
+      document.getElementById('input-libelle').value = libelle;
+    }
+
+    if (categorieAuto) {
       document.querySelectorAll('#chips-cat .chip').forEach(chip => {
-        chip.classList.toggle('selected', chip.dataset.val === parsed.categorie);
+        chip.classList.toggle('selected', chip.dataset.val === categorieAuto);
       });
     }
 
     status.className = 'scan-status success';
-    status.innerHTML = '<i class="ti ti-check"></i> Ticket analysé ! Vérifiez et complétez si besoin.';
-    document.getElementById('scan-btn').innerHTML = '<i class="ti ti-camera"></i> Rescanner';
+    status.innerHTML = '<i class="ti ti-check"></i> Ticket détecté (à vérifier)';
 
-  } catch(e) {
-    console.error('Scan error:', e);
+    document.getElementById('btn-scan').innerHTML =
+      '<i class="ti ti-camera"></i> Rescanner';
+
+  } catch (e) {
+
+    console.error(e);
+
     status.className = 'scan-status error';
-    status.innerHTML = '<i class="ti ti-x"></i> Impossible de lire le ticket. Saisie manuelle.';
+    status.innerHTML =
+      '<i class="ti ti-x"></i> Lecture impossible';
+
   }
 }
-
 // EVENTS
 // ============================================================
 document.getElementById('btn-scan').addEventListener('click', () => {

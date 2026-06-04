@@ -449,12 +449,15 @@ input:focus, select:focus { outline: none; border-color: var(--green); }
   color: var(--text2);
   font-size: 12px;
 }
-.scan-divider::before, .scan-divider::after {
+
+.scan-divider:before,
+.scan-divider:after {
   content: '';
   flex: 1;
   height: 0.5px;
   background: var(--border);
 }
+
   background: var(--red-light);
   color: var(--red);
   border-radius: 8px;
