@@ -615,12 +615,14 @@ function showToast(msg, duration = 2500) {
 
 function openModal() {
   document.getElementById('input-date').value = new Date().toISOString().split('T')[0];
-  // Sync mois courant
   document.getElementById('input-mois').value = getCurrentMonthName();
   document.getElementById('modal').classList.add('open');
   document.getElementById('submit-error').classList.add('hidden');
   document.getElementById('input-montant').value = '';
   document.getElementById('input-libelle').value = '';
+  document.getElementById('scan-preview').classList.add('hidden');
+  document.getElementById('scan-btn').innerHTML = '<i class="ti ti-camera"></i> Scanner un ticket de caisse';
+  document.getElementById('input-photo').value = '';
 }
 
 function closeModal() {
@@ -783,8 +785,108 @@ async function prepareNextMonth() {
   }
 }
 
+// ============================================================
+// SCAN TICKET DE CAISSE
+// ============================================================
+async function scanTicket(file) {
+  if (!file) return;
+
+  const preview = document.getElementById('scan-preview');
+  const status  = document.getElementById('scan-status');
+  const img     = document.getElementById('scan-img');
+
+  // Afficher la prévisualisation
+  const reader = new FileReader();
+  reader.onload = (e) => { img.src = e.target.result; };
+  reader.readAsDataURL(file);
+  preview.classList.remove('hidden');
+  status.className = 'scan-status';
+  status.innerHTML = '<i class="ti ti-loader-2 spin"></i> Analyse du ticket...';
+
+  try {
+    // Convertir en base64
+    const base64 = await new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload  = () => resolve(r.result.split(',')[1]);
+      r.onerror = reject;
+      r.readAsDataURL(file);
+    });
+
+    // Déterminer le type MIME
+    const mimeType = file.type || 'image/jpeg';
+
+    // Appel API Claude
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 500,
+        messages: [{
+          role: 'user',
+          content: [
+            {
+              type: 'image',
+              source: { type: 'base64', media_type: mimeType, data: base64 }
+            },
+            {
+              type: 'text',
+              text: `Analyse ce ticket de caisse et extrais les informations suivantes en JSON uniquement, sans texte autour :
+{
+  "libelle": "nom du magasin ou commerce (ex: Leclerc, Carrefour, Pharmacie...)",
+  "montant": 12.50,
+  "date": "DD/MM/YYYY",
+  "categorie": "une parmi: Courses, Carburant/transport, Santé, Loisir, Habillement/linge, Animaux, Deco/Maison, Alimentation, Cadeau, Autre"
+}
+Si une information est introuvable, mets null. Le montant doit être le total TTC final payé, sans le signe €.`
+            }
+          ]
+        }]
+      })
+    });
+
+    if (!response.ok) throw new Error('Erreur API: ' + response.status);
+    const data = await response.json();
+    const text = data.content?.[0]?.text || '';
+
+    // Parser le JSON retourné
+    const clean = text.replace(/```json|```/g, '').trim();
+    const parsed = JSON.parse(clean);
+
+    // Remplir les champs
+    if (parsed.libelle)  document.getElementById('input-libelle').value  = parsed.libelle;
+    if (parsed.montant)  document.getElementById('input-montant').value  = parsed.montant;
+    if (parsed.date) {
+      // Convertir DD/MM/YYYY → YYYY-MM-DD pour l'input date
+      const [d, m, y] = parsed.date.split('/');
+      if (d && m && y) document.getElementById('input-date').value = `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
+    }
+    if (parsed.categorie) {
+      // Sélectionner le bon chip catégorie
+      document.querySelectorAll('#chips-cat .chip').forEach(chip => {
+        chip.classList.toggle('selected', chip.dataset.val === parsed.categorie);
+      });
+    }
+
+    status.className = 'scan-status success';
+    status.innerHTML = '<i class="ti ti-check"></i> Ticket analysé ! Vérifiez et complétez si besoin.';
+    document.getElementById('scan-btn').innerHTML = '<i class="ti ti-camera"></i> Rescanner';
+
+  } catch(e) {
+    console.error('Scan error:', e);
+    status.className = 'scan-status error';
+    status.innerHTML = '<i class="ti ti-x"></i> Impossible de lire le ticket. Saisie manuelle.';
+  }
+}
+
 // EVENTS
 // ============================================================
+document.getElementById('btn-scan').addEventListener('click', () => {
+  document.getElementById('input-photo').click();
+});
+document.getElementById('input-photo').addEventListener('change', (e) => {
+  if (e.target.files?.[0]) scanTicket(e.target.files[0]);
+});
 document.getElementById('btn-login').addEventListener('click', login);
 document.getElementById('btn-logout').addEventListener('click', logout);
 document.getElementById('btn-refresh').addEventListener('click', () => { sheetData = {}; loadCurrentMonth(); });
