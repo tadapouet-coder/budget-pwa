@@ -186,22 +186,13 @@
   <div class="modal">
     <div class="modal-handle"></div>
     <div class="modal-title">Nouvelle opération</div>
+<div style="display:flex;gap:8px;margin-bottom:12px;">
+  <button type="button" onclick="quickAdd('Courses')" class="chip">🛒 Courses</button>
+  <button type="button" onclick="quickAdd('Carburant/transport')" class="chip">⛽ Carburant</button>
+  <button type="button" onclick="quickAdd('Loisir')" class="chip">🍔 Loisir</button>
+</div>
 
-    <!-- SCANNER TICKET -->
-    <div id="scan-zone">
-      <input type="file" id="input-photo" accept="image/*" style="display:none">
-      <button class="scan-btn" id="btn-scan">
-        <i class="ti ti-camera"></i> Scanner un ticket de caisse
-      </button>
-      <div id="scan-preview" class="scan-preview hidden">
-        <img id="scan-img" src="" alt="ticket">
-        <div id="scan-status" class="scan-status">
-          <i class="ti ti-loader-2 spin"></i> Analyse en cours...
-        </div>
-      </div>
-    </div>
-
-    <div class="scan-divider"><span>ou saisir manuellement</span></div>
+  
 
     <div class="form-group">
       <label class="form-label">Compte</label>

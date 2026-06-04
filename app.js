@@ -493,6 +493,7 @@ async function submitDepense() {
   const libelle = document.getElementById('input-libelle').value.trim();
   const date = document.getElementById('input-date').value;
   const categorie = getChipVal('chips-cat');
+saveMapping(libelle, categorie);
   const mois = document.getElementById('input-mois').value;
 
   const errEl = document.getElementById('submit-error');
@@ -546,6 +547,57 @@ async function submitDepense() {
 // ============================================================
 // HELPERS UI
 // ============================================================
+
+// ============================================================
+// AUTO CATEGORISATION
+// ============================================================
+
+function autoCategorie(libelle) {
+  if (!libelle) return null;
+
+  const saved = getMapping(libelle);
+  if (saved) return saved;
+
+  const l = libelle.toLowerCase();
+
+  if (l.includes("leclerc") || l.includes("carrefour") || l.includes("intermarché"))
+    return "Courses";
+
+  if (l.includes("total") || l.includes("essence") || l.includes("station"))
+    return "Carburant/transport";
+
+  if (l.includes("pharmacie") || l.includes("médecin"))
+    return "Santé";
+
+  if (l.includes("ciné") || l.includes("netflix") || l.includes("restaurant"))
+    return "Loisir";
+
+  if (l.includes("amazon") || l.includes("ikea"))
+    return "Deco/Maison";
+
+  return "Autre";
+}
+
+function quickAdd(cat) {
+
+  document.querySelectorAll('#chips-cat .chip').forEach(chip => {
+    chip.classList.toggle('selected', chip.dataset.val === cat);
+  });
+
+  document.getElementById('input-montant').focus();
+}
+function saveMapping(libelle, categorie) {
+  const map = JSON.parse(localStorage.getItem("catMap") || "{}");
+  map[libelle.toLowerCase()] = categorie;
+  localStorage.setItem("catMap", JSON.stringify(map));
+}
+
+function getMapping(libelle) {
+  const map = JSON.parse(localStorage.getItem("catMap") || "{}");
+  return map[libelle.toLowerCase()] || null;
+}
+
+
 function fmt(val) {
   if (val === null || val === undefined || isNaN(val)) return '—';
   const n = Math.abs(val);
@@ -615,14 +667,15 @@ function showToast(msg, duration = 2500) {
 
 function openModal() {
   document.getElementById('input-date').value = new Date().toISOString().split('T')[0];
+setTimeout(() => {
+  document.getElementById('input-libelle').focus();
+}, 200);
   document.getElementById('input-mois').value = getCurrentMonthName();
   document.getElementById('modal').classList.add('open');
   document.getElementById('submit-error').classList.add('hidden');
   document.getElementById('input-montant').value = '';
   document.getElementById('input-libelle').value = '';
-  document.getElementById('scan-preview').classList.add('hidden');
-  document.getElementById('btn-scan').innerHTML = '<i class="ti ti-camera"></i> Scanner un ticket de caisse';
-  document.getElementById('input-photo').value = '';
+
 }
 
 function closeModal() {
@@ -785,116 +838,10 @@ async function prepareNextMonth() {
   }
 }
 
-// ============================================================
-// SCAN TICKET DE CAISSE
-// ============================================================
-async function scanTicket(file) {
 
-  if (!file) return;
-
-  const preview = document.getElementById('scan-preview');
-  const status  = document.getElementById('scan-status');
-  const img     = document.getElementById('scan-img');
-
-  // preview image
-  const reader = new FileReader();
-  reader.onload = (e) => { img.src = e.target.result; };
-  reader.readAsDataURL(file);
-
-  preview.classList.remove('hidden');
-  status.className = 'scan-status';
-  status.innerHTML = '<i class="ti ti-loader-2 spin"></i> Analyse en cours...';
-
-  try {
-
-    const result = await Tesseract.recognize(file, 'fra');
-    const text = result.data.text;
-
-    console.log("OCR:", text);
-
-    // --------------------------
-    // EXTRACTION INTELLIGENTE
-    // --------------------------
-
-    // Montant (plus robuste)
-    let montant = null;
-    const montants = text.match(/\d+[.,]\d{2}/g);
-    if (montants) {
-      montant = montants[montants.length - 1].replace(',', '.');
-    }
-
-    // Date
-    let date = null;
-    const dateMatch = text.match(/(\d{2}\/\d{2}\/\d{4})/);
-    if (dateMatch) date = dateMatch[0];
-
-    // Libellé = première ligne exploitable
-    const lignes = text
-      .split('\n')
-      .map(l => l.trim())
-      .filter(l => l.length > 2);
-
-    let libelle = lignes[0] || '';
-
-    // --------------------------
-    // AUTO CATEGORIE
-    // --------------------------
-
-    let categorieAuto = null;
-
-    const lower = libelle.toLowerCase();
-
-    if (lower.includes("leclerc") || lower.includes("carrefour")) {
-      categorieAuto = "Courses";
-    }
-
-    if (lower.includes("essence") || lower.includes("total") || lower.includes("station")) {
-      categorieAuto = "Carburant/transport";
-    }
-
-    // --------------------------
-    // REMPLISSAGE
-    // --------------------------
-
-    if (montant) {
-      document.getElementById('input-montant').value = montant;
-    }
-
-    if (date) {
-      const [d,m,y] = date.split('/');
-      document.getElementById('input-date').value = `${y}-${m}-${d}`;
-    }
-
-    if (libelle) {
-      document.getElementById('input-libelle').value = libelle;
-    }
-
-    if (categorieAuto) {
-      document.querySelectorAll('#chips-cat .chip').forEach(chip => {
-        chip.classList.toggle('selected', chip.dataset.val === categorieAuto);
-      });
-    }
-
-    status.className = 'scan-status success';
-    status.innerHTML = '<i class="ti ti-check"></i> Ticket détecté (à vérifier)';
-
-    document.getElementById('btn-scan').innerHTML =
-      '<i class="ti ti-camera"></i> Rescanner';
-
-  } catch (e) {
-
-    console.error(e);
-
-    status.className = 'scan-status error';
-    status.innerHTML =
-      '<i class="ti ti-x"></i> Lecture impossible';
-
-  }
-}
 // EVENTS
 // ============================================================
-document.getElementById('btn-scan').addEventListener('click', () => {
-  document.getElementById('input-photo').click();
+
 });
 document.getElementById('input-photo').addEventListener('change', (e) => {
   if (e.target.files?.[0]) scanTicket(e.target.files[0]);
@@ -946,10 +893,26 @@ document.querySelectorAll('.chips').forEach(group => {
   });
 });
 
+// AUTO CATEGORIE SUR SAISIE LIBELLE
+document.getElementById('input-libelle').addEventListener('input', (e) => {
+
+  const cat = autoCategorie(e.target.value);
+  if (!cat) return;
+
+  document.querySelectorAll('#chips-cat .chip').forEach(chip => {
+    chip.classList.toggle('selected', chip.dataset.val === cat);
+  });
+
+});
+
+
+
 // Fermer modal en cliquant outside
 document.getElementById('modal').addEventListener('click', (e) => {
   if (e.target === document.getElementById('modal')) closeModal();
 });
+
+
 
 // ============================================================
 // INIT
