@@ -6,6 +6,9 @@ const SPREADSHEET_ID = '1mGEG698AcF6HZX-FxbqDbpFCaX1PJmFH9I6UzbdQYpk';
 const SCOPES = 'https://www.googleapis.com/auth/spreadsheets';
 const MONTHS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Aout','Septembre','Octobre','Novembre','Décembre'];
 
+const PREMIUM_DEFAULTS = { profile1Name:'Yoann', profile2Name:'Élodie', profile2Email:'', alertThreshold:80, compareMode:'previousMonth' };
+let premiumSettings = loadPremiumSettings();
+
 const ZONES = {
   'Épargne':      { 'Revenu': {col:'A',startRow:13}, 'Dépense': {col:'A',startRow:22} },
   'Compte Perso': { 'Revenu': {col:'H',startRow:13}, 'Charge fixe': {col:'H',startRow:22}, 'Charge variable': {col:'H',startRow:36} },
@@ -122,8 +125,21 @@ async function loadMonth(mois) {
   try {
     await loadTransactions(mois);
     await loadSoldes(mois);
-    document.getElementById('header-sub').textContent = mois + ' · à jour';
+    updateProfilesUI();
+    renderPremiumViews(mois);
+    document.getElementById('header-sub').textContent = mois + (navigator.onLine ? ' · à jour' : ' · hors-ligne');
   } catch(e) {
+    const cached = readMonthCache(mois);
+    if (cached && cached.rows) {
+      sheetData[mois] = cached.rows;
+      renderTransactions(cached.rows);
+      renderBudgetBars(cached.rows);
+      renderStats(cached.rows);
+      renderPremiumViews(mois);
+      document.getElementById('header-sub').textContent = mois + ' · cache hors-ligne';
+      showToast('📴 Données chargées depuis le cache');
+      return;
+    }
     document.getElementById('header-sub').textContent = 'Erreur';
     showToast('❌ ' + e.message);
   }
@@ -178,9 +194,12 @@ async function loadTransactions(mois) {
   const data = await sheetsGet(`${mois}!A13:T120`);
   if (!data || !data.values) return;
   sheetData[mois] = data.values;
+  writeMonthCache(mois, data.values);
   renderTransactions(data.values);
   renderBudgetBars(data.values);
   renderStats(data.values);
+  renderComparison(mois, data.values);
+  renderBalanceChart(mois, data.values);
 }
 
 // ============================================================
@@ -266,6 +285,7 @@ function renderBudgetBars(rows) {
   (isEndOfMonth ? `<div class="eom-summary">
     <i class="ti ti-calendar-check"></i> Fin de mois — Total dépensé : <b>${fmt(budgetData.reduce((s,b)=>s+(b.total-b.restant),0))}</b>
   </div>` : '');
+  checkBudgetAlerts(budgetData);
 }
 
 // ============================================================
@@ -322,6 +342,7 @@ async function saveBudgetsToSheet(mois, courses, carburant, autre) {
 }
 
 async function openSettings() {
+  fillPremiumSettingsForm();
   const mois = getViewMonthName();
   const b = await getBudgetsFromSheet(mois);
   document.getElementById('budget-courses').value   = b.courses;
@@ -340,6 +361,7 @@ async function openSettings() {
 function closeSettings() { document.getElementById('modal-settings').classList.remove('open'); }
 
 async function saveSettings() {
+  readPremiumSettingsForm();
   const courses=parseFloat(document.getElementById('budget-courses').value)||500;
   const carburant=parseFloat(document.getElementById('budget-carburant').value)||240;
   const autre=parseFloat(document.getElementById('budget-autre').value)||400;
@@ -541,6 +563,78 @@ function openModal() {
 
 function closeModal() { document.getElementById('modal').classList.remove('open'); }
 
+
+// ============================================================
+// PREMIUM: PROFILS, OFFLINE, NOTIFICATIONS, GRAPHIQUES, ANNUEL
+// ============================================================
+function loadPremiumSettings() {
+  try { return { ...PREMIUM_DEFAULTS, ...(JSON.parse(localStorage.getItem('budget_premium_settings') || '{}')) }; }
+  catch { return { ...PREMIUM_DEFAULTS }; }
+}
+function savePremiumSettingsLocal() { localStorage.setItem('budget_premium_settings', JSON.stringify(premiumSettings)); }
+function getInitials(name, fallback) { const clean=(name||fallback||'').trim(); return clean.split(/\s+/).map(x=>x[0]).join('').slice(0,2).toUpperCase() || fallback; }
+function updateProfilesUI() {
+  const p1=premiumSettings.profile1Name||'Profil 1', p2=premiumSettings.profile2Name||'Profil 2';
+  const names=document.querySelectorAll('.rep-name'); if(names[0]) names[0].textContent=p1; if(names[1]) names[1].textContent=p2;
+  const avatars=document.querySelectorAll('.rep-avatar'); if(avatars[0]) avatars[0].textContent=getInitials(p1,'P1'); if(avatars[1]) avatars[1].textContent=getInitials(p2,'P2');
+}
+function fillPremiumSettingsForm() {
+  const set=(id,val)=>{const el=document.getElementById(id); if(el) el.value=val;};
+  set('profile-1-name', premiumSettings.profile1Name); set('profile-2-name', premiumSettings.profile2Name); set('profile-2-email', premiumSettings.profile2Email);
+  set('alert-threshold', premiumSettings.alertThreshold); set('compare-mode', premiumSettings.compareMode);
+}
+function readPremiumSettingsForm() {
+  const val=id=>document.getElementById(id)?.value?.trim();
+  premiumSettings={...premiumSettings, profile1Name:val('profile-1-name')||'Yoann', profile2Name:val('profile-2-name')||'Élodie', profile2Email:val('profile-2-email')||'', alertThreshold:Math.max(1,Math.min(150,parseFloat(val('alert-threshold'))||80)), compareMode:val('compare-mode')||'previousMonth'};
+  savePremiumSettingsLocal(); updateProfilesUI();
+}
+function writeMonthCache(mois, rows) { try { localStorage.setItem('budget_cache_'+mois, JSON.stringify({rows, savedAt:Date.now()})); } catch {} }
+function readMonthCache(mois) { try { return JSON.parse(localStorage.getItem('budget_cache_'+mois)||'null'); } catch { return null; } }
+function renderPremiumViews(mois) { const rows=sheetData[mois]; if(!rows) return; renderComparison(mois, rows); renderBalanceChart(mois, rows); }
+function getDayOfMonthForView(mois) { const now=new Date(); return MONTHS[now.getMonth()]===mois ? now.getDate() : new Date(now.getFullYear(), MONTHS.indexOf(mois)+1, 0).getDate(); }
+function sumJointVariableUntil(rows, dayLimit) {
+  const out={total:0,cats:{}};
+  (rows||[]).forEach((row,i)=>{ if(i<26) return; const d=parseDate(row[14]); const mnt=parseFloat(row[16])||0; const cat=row[17]||'Autre'; if(d&&!isNaN(d)&&d.getDate()<=dayLimit&&mnt>0){ out.total+=mnt; out.cats[cat]=(out.cats[cat]||0)+mnt; }});
+  return out;
+}
+function getComparisonMonthName(mois) { const idx=MONTHS.indexOf(mois); return premiumSettings.compareMode==='previousYear' ? mois : MONTHS[Math.max(0,idx-1)]; }
+async function ensureMonthLoaded(mois) {
+  if(sheetData[mois]) return sheetData[mois]; const cached=readMonthCache(mois); if(cached?.rows){ sheetData[mois]=cached.rows; return cached.rows; }
+  if(!accessToken) return null; const data=await sheetsGet(`${mois}!A13:T120`); if(data?.values){ sheetData[mois]=data.values; writeMonthCache(mois,data.values); return data.values; } return null;
+}
+async function renderComparison(mois, rows) {
+  const container=document.getElementById('compare-panel'); if(!container) return;
+  const compareMonth=getComparisonMonthName(mois), day=getDayOfMonthForView(mois), current=sumJointVariableUntil(rows,day);
+  let previousRows=null;
+  if(premiumSettings.compareMode==='previousYear') previousRows=readMonthCache(mois+'_N-1')?.rows || null;
+  else if(compareMonth!==mois) previousRows=await ensureMonthLoaded(compareMonth);
+  if(!previousRows){ container.innerHTML=`<div class="budget-loading">Comparaison indisponible : ${premiumSettings.compareMode==='previousYear'?'prévoir les données N-1':'mois précédent non chargé'}</div>`; return; }
+  const previous=sumJointVariableUntil(previousRows,day), diff=current.total-previous.total, pct=previous.total?Math.round(diff/previous.total*100):0, cls=diff<=0?'status-ok':pct<=10?'status-warn':'status-over';
+  container.innerHTML=`<div class="compare-card"><div class="compare-main"><div class="compare-label">Total au jour ${day}</div><div class="compare-value ${diff<=0?'positive':'negative'}">${diff>=0?'+':''}${fmt(diff)}</div></div><div class="compare-sub">Ce mois : <b>${fmt(current.total)}</b> · Référence (${premiumSettings.compareMode==='previousYear'?'même mois N-1':compareMonth}) : <b>${fmt(previous.total)}</b> · <span class="status-pill ${cls}">${pct>=0?'+':''}${pct}%</span></div></div>`;
+}
+function buildDailySeries(rows, mois) {
+  const days=new Date(new Date().getFullYear(), MONTHS.indexOf(mois)+1, 0).getDate(); const series=Array.from({length:days},(_,i)=>({day:i+1,val:0}));
+  (rows||[]).forEach((row,i)=>{ if(i<26) return; const d=parseDate(row[14]); const mnt=parseFloat(row[16])||0; if(d&&!isNaN(d)&&mnt>0&&d.getDate()>=1&&d.getDate()<=days) series[d.getDate()-1].val+=mnt; });
+  let cum=0; return series.map(p=>({day:p.day,val:(cum+=p.val)}));
+}
+function renderLineChart(containerId, series, options={}) {
+  const el=document.getElementById(containerId); if(!el) return; if(!series?.length || Math.max(...series.map(p=>p.val))<=0){ el.innerHTML='<div class="chart-empty">Aucune donnée graphique</div>'; return; }
+  const w=360,h=180,pad=26,max=Math.max(...series.map(p=>p.val),1),x=i=>pad+(series.length===1?0:i*(w-pad*2)/(series.length-1)),y=v=>h-pad-(v/max)*(h-pad*2),points=series.map((p,i)=>`${x(i).toFixed(1)},${y(p.val).toFixed(1)}`).join(' ');
+  el.innerHTML=`<svg class="chart-svg" viewBox="0 0 ${w} ${h}" role="img" aria-label="${escHtml(options.title||'Graphique')}"><line class="chart-axis" x1="${pad}" y1="${h-pad}" x2="${w-pad}" y2="${h-pad}"></line><line class="chart-axis" x1="${pad}" y1="${pad}" x2="${pad}" y2="${h-pad}"></line><polyline class="chart-line" points="${points}"></polyline><text class="chart-label" x="${pad}" y="14">${escHtml(options.title||'')}</text><text class="chart-label" x="${pad}" y="${h-6}">J1</text><text class="chart-label" x="${w-pad-28}" y="${h-6}">J${series.length}</text><text class="chart-label" x="${w-pad-70}" y="14">Max ${fmt(max)}</text></svg>`;
+}
+function renderBalanceChart(mois, rows) { renderLineChart('balance-chart', buildDailySeries(rows, mois), {title:'Cumul dépenses variables joint'}); }
+async function renderAnnualSummary() {
+  const kpis=document.getElementById('annual-kpis'), detail=document.getElementById('annual-detail'); if(!kpis||!detail) return; kpis.innerHTML=detail.innerHTML='<div class="budget-loading">Chargement...</div>';
+  const currentIdx=new Date().getMonth(), monthly=[]; for(let i=0;i<=currentIdx;i++){ const m=MONTHS[i]; let rows=null; try{rows=await ensureMonthLoaded(m);}catch{} monthly.push({mois:m,total:rows?sumJointVariableUntil(rows,31).total:0}); }
+  const total=monthly.reduce((s,m)=>s+m.total,0), avg=monthly.length?total/monthly.length:0, best=monthly.reduce((a,b)=>b.total<a.total?b:a,monthly[0]), worst=monthly.reduce((a,b)=>b.total>a.total?b:a,monthly[0]);
+  kpis.innerHTML=`<div class="kpi-card"><div class="kpi-label">Total annuel</div><div class="kpi-value">${fmt(total)}</div><div class="kpi-sub">Charges variables joint</div></div><div class="kpi-card"><div class="kpi-label">Moyenne/mois</div><div class="kpi-value">${fmt(avg)}</div><div class="kpi-sub">Depuis janvier</div></div><div class="kpi-card"><div class="kpi-label">Mois le plus bas</div><div class="kpi-value">${best.mois}</div><div class="kpi-sub">${fmt(best.total)}</div></div><div class="kpi-card"><div class="kpi-label">Mois le plus haut</div><div class="kpi-value">${worst.mois}</div><div class="kpi-sub">${fmt(worst.total)}</div></div>`;
+  renderLineChart('annual-chart', monthly.map((m,i)=>({day:i+1,val:m.total})), {title:'Dépenses par mois'});
+  const max=Math.max(...monthly.map(m=>m.total),1); detail.innerHTML=monthly.map(m=>`<div class="budget-row"><div class="budget-row-top"><span class="budget-cat">${m.mois}</span><span class="budget-amounts"><b>${fmt(m.total)}</b></span></div><div class="bar-bg"><div class="bar-fill bar-ok" style="width:${Math.round(m.total/max*100)}%"></div></div></div>`).join('');
+}
+async function enableNotifications() { if(!('Notification' in window)){showToast('Notifications non supportées'); return;} const perm=await Notification.requestPermission(); showToast(perm==='granted'?'✅ Notifications activées':'Notifications refusées'); }
+function checkBudgetAlerts(budgetData) { if(!('Notification' in window)||Notification.permission!=='granted') return; const threshold=premiumSettings.alertThreshold||80, mois=getViewMonthName(); budgetData.forEach(b=>{ const spent=b.total-b.restant, pct=b.total>0?Math.round(spent/b.total*100):0, key=`budget_alert_${mois}_${b.label}_${threshold}`; if(pct>=threshold&&!localStorage.getItem(key)){ new Notification(`Budget ${b.label} à ${pct}%`, {body:`Dépensé ${fmt(spent)} sur ${fmt(b.total)}. Reste ${fmt(b.restant)}.`}); localStorage.setItem(key,'1'); }}); }
+function registerServiceWorker() { if('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(()=>{}); }
+
 // ============================================================
 // EVENTS
 // ============================================================
@@ -549,6 +643,7 @@ document.getElementById('btn-logout').addEventListener('click', logout);
 document.getElementById('btn-refresh').addEventListener('click', ()=>{ sheetData={}; loadMonth(getViewMonthName()); });
 document.getElementById('btn-settings').addEventListener('click', openSettings);
 document.getElementById('btn-save-settings').addEventListener('click', saveSettings);
+document.getElementById('btn-enable-notifications')?.addEventListener('click', enableNotifications);
 document.getElementById('btn-prepare-month').addEventListener('click', prepareNextMonth);
 document.getElementById('btn-month-prev').addEventListener('click', ()=>changeMonth(-1));
 document.getElementById('btn-month-next').addEventListener('click', ()=>changeMonth(+1));
@@ -566,6 +661,7 @@ document.querySelectorAll('.nav-btn').forEach(btn=>{
     document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
     btn.classList.add('active');
     document.getElementById('screen-'+btn.dataset.screen).classList.add('active');
+    if (btn.dataset.screen === 'annual') renderAnnualSummary();
   });
 });
 
@@ -590,4 +686,8 @@ document.querySelectorAll('.chips').forEach(group=>{
 // ============================================================
 // INIT
 // ============================================================
+registerServiceWorker();
+updateProfilesUI();
+window.addEventListener('online', () => showToast('✅ Connexion rétablie'));
+window.addEventListener('offline', () => showToast('📴 Mode hors-ligne'));
 checkAuth();

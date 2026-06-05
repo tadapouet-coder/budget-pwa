@@ -49,6 +49,7 @@
     <button class="nav-btn active" data-screen="dashboard"><i class="ti ti-layout-dashboard"></i>Dashboard</button>
     <button class="nav-btn" data-screen="transactions"><i class="ti ti-list"></i>Dépenses</button>
     <button class="nav-btn" data-screen="stats"><i class="ti ti-chart-pie"></i>Stats</button>
+    <button class="nav-btn" data-screen="annual"><i class="ti ti-calendar-stats"></i>Annuel</button>
   </div>
 
   <!-- DASHBOARD -->
@@ -113,7 +114,26 @@
   <div id="screen-stats" class="screen">
     <div class="section-title">Dépenses par catégorie</div>
     <div class="budget-bars" id="stats-bars"><div class="budget-loading">Chargement...</div></div>
+
+    <div class="section-title">Comparaison au même jour</div>
+    <div class="budget-bars" id="compare-panel"><div class="budget-loading">Chargement...</div></div>
+
+    <div class="section-title">Évolution des dépenses</div>
+    <div class="chart-card" id="balance-chart"><div class="budget-loading">Chargement...</div></div>
+
     <div class="fab"><button class="fab-btn" id="fab-stats"><i class="ti ti-plus"></i>Ajouter</button></div>
+  </div>
+
+  <!-- ANNUEL -->
+  <div id="screen-annual" class="screen">
+    <div class="section-title">Résumé annuel</div>
+    <div class="annual-grid" id="annual-kpis"><div class="budget-loading">Chargement...</div></div>
+
+    <div class="section-title">Dépenses mensuelles</div>
+    <div class="chart-card" id="annual-chart"><div class="budget-loading">Chargement...</div></div>
+
+    <div class="section-title">Détail par mois</div>
+    <div class="budget-bars" id="annual-detail"><div class="budget-loading">Chargement...</div></div>
   </div>
 </div>
 
@@ -122,7 +142,23 @@
   <div class="modal">
     <div class="modal-handle"></div>
     <div class="modal-title">⚙️ Paramètres</div>
-    <p style="font-size:13px;color:var(--text2);margin-bottom:16px">Budgets mensuels pour les charges variables du compte joint.</p>
+    <p style="font-size:13px;color:var(--text2);margin-bottom:16px">Budgets mensuels, profils, alertes et comparaison.</p>
+
+    <div style="font-size:13px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">👥 Profils</div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Profil 1</label><input type="text" id="profile-1-name" placeholder="Yoann"></div>
+      <div class="form-group"><label class="form-label">Profil 2</label><input type="text" id="profile-2-name" placeholder="Élodie"></div>
+    </div>
+    <div class="form-group"><label class="form-label">Email profil 2</label><input type="email" id="profile-2-email" placeholder="email@exemple.fr" autocomplete="email"></div>
+
+    <div style="font-size:13px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;margin:18px 0 10px">🔔 Alertes et comparaison</div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Seuil budget (%)</label><input type="number" id="alert-threshold" min="1" max="150" step="1" placeholder="80"></div>
+      <div class="form-group"><label class="form-label">Comparaison</label><select id="compare-mode"><option value="previousMonth">Mois précédent</option><option value="previousYear">Même mois N-1</option></select></div>
+    </div>
+    <button class="submit-btn secondary-btn" id="btn-enable-notifications" type="button"><i class="ti ti-bell"></i> Activer les notifications</button>
+
+    <div style="height:1px;background:var(--border);margin:20px 0"></div>
     <div class="form-group">
       <label class="form-label">🛒 Budget Courses (€)</label>
       <input type="number" id="budget-courses" inputmode="decimal" placeholder="500">

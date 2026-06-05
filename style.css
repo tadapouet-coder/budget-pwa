@@ -152,3 +152,28 @@ input:focus, select:focus { outline:none; border-color:var(--green); }
 /* TOAST */
 .toast { position:fixed; bottom:max(90px,calc(env(safe-area-inset-bottom)+80px)); left:50%; transform:translateX(-50%); background:#1C1C1E; color:white; padding:12px 20px; border-radius:50px; font-size:14px; font-weight:500; z-index:200; white-space:nowrap; box-shadow:0 4px 20px rgba(0,0,0,.3); animation:slideUp .2s ease; }
 @keyframes slideUp { from{opacity:0;transform:translateX(-50%) translateY(10px)} to{opacity:1;transform:translateX(-50%) translateY(0)} }
+
+
+/* PREMIUM ADDITIONS */
+.secondary-btn { background: var(--blue) !important; margin-top: 0; }
+.status-pill { display:inline-flex; align-items:center; gap:5px; border-radius:999px; padding:4px 8px; font-size:11px; font-weight:600; }
+.status-ok { background:var(--green-light); color:var(--green-dark); }
+.status-warn { background:#FAEEDA; color:#854F0B; }
+.status-over { background:var(--red-light); color:var(--red-dark); }
+.compare-card { padding:13px 14px; border-bottom:.5px solid var(--border); }
+.compare-card:last-child { border-bottom:none; }
+.compare-main { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:6px; }
+.compare-label { font-size:13px; font-weight:600; }
+.compare-value { font-size:14px; font-weight:700; }
+.compare-sub { font-size:11px; color:var(--text2); line-height:1.35; }
+.chart-card { background:var(--card); border:.5px solid var(--border); border-radius:var(--radius); padding:12px; overflow:hidden; }
+.chart-svg { width:100%; height:180px; display:block; }
+.chart-axis { stroke:var(--border); stroke-width:1; }
+.chart-line { fill:none; stroke:var(--green); stroke-width:3; stroke-linecap:round; stroke-linejoin:round; }
+.chart-label { font-size:10px; fill:var(--text2); }
+.chart-empty { padding:20px; text-align:center; color:var(--text2); font-size:14px; }
+.annual-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.kpi-card { background:var(--card); border:.5px solid var(--border); border-radius:var(--radius); padding:13px; }
+.kpi-label { font-size:11px; color:var(--text2); text-transform:uppercase; letter-spacing:.04em; margin-bottom:6px; }
+.kpi-value { font-size:20px; font-weight:800; }
+.kpi-sub { font-size:11px; color:var(--text2); margin-top:3px; }
