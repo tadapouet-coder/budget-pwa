@@ -4,41 +4,12 @@
 const CLIENT_ID = '917136650964-63auvuts9dg4hbtqr2o7pa1171pmmrr2.apps.googleusercontent.com';
 const SPREADSHEET_ID = '1mGEG698AcF6HZX-FxbqDbpFCaX1PJmFH9I6UzbdQYpk';
 const SCOPES = 'https://www.googleapis.com/auth/spreadsheets';
+const MONTHS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Aout','Septembre','Octobre','Novembre','Décembre'];
 
-// Mapping zones dans le sheet (colonnes en notation A1)
 const ZONES = {
-  'Épargne': {
-    'Revenu':  { col: 'A', startRow: 13 },
-    'Dépense': { col: 'A', startRow: 22 }
-  },
-  'Compte Perso': {
-    'Revenu':          { col: 'H', startRow: 13 },
-    'Charge fixe':     { col: 'H', startRow: 22 },
-    'Charge variable': { col: 'H', startRow: 36 }
-  },
-  'Compte Joint': {
-    'Revenu':          { col: 'O', startRow: 13 },
-    'Charge fixe':     { col: 'O', startRow: 22 },
-    'Charge variable': { col: 'O', startRow: 36 }
-  }
-};
-
-// Colonnes de données par compte (Date, Libellé, Montant, Catégorie)
-const COMPTE_COLS = {
-  'Épargne':      { date: 'A', lib: 'B', mnt: 'C', cat: 'D' },
-  'Compte Perso': { date: 'H', lib: 'I', mnt: 'J', cat: 'K' },
-  'Compte Joint': { date: 'O', lib: 'P', mnt: 'Q', cat: 'R' }
-};
-
-// Cellules des soldes calculés par le sheet
-const SOLDE_CELLS = {
-  'perso-eom':   'I5',  // Solde fin de mois Perso
-  'perso-today': 'I6',  // Solde aujourd'hui Perso
-  'joint-eom':   'P5',  // Solde fin de mois Joint
-  'joint-today': 'P6',  // Solde aujourd'hui Joint
-  'epargne':     'C5',  // Solde épargne
-  'rep-y':       'S5',  // Répartition Yoann
-  'rep-e':       'S6',  // Répartition Élodie
+  'Épargne':      { 'Revenu': {col:'A',startRow:13}, 'Dépense': {col:'A',startRow:22} },
+  'Compte Perso': { 'Revenu': {col:'H',startRow:13}, 'Charge fixe': {col:'H',startRow:22}, 'Charge variable': {col:'H',startRow:36} },
+  'Compte Joint': { 'Revenu': {col:'O',startRow:13}, 'Charge fixe': {col:'O',startRow:22}, 'Charge variable': {col:'O',startRow:39} }
 };
 
 // ============================================================
@@ -46,10 +17,11 @@ const SOLDE_CELLS = {
 // ============================================================
 let accessToken = null;
 let currentCompteFilter = 'joint';
-let sheetData = {}; // cache des données par onglet
+let sheetData = {};
+let viewMonth = new Date().getMonth(); // index 0-11, mois consulté
 
 // ============================================================
-// GOOGLE OAUTH (token implicite)
+// AUTH
 // ============================================================
 function login() {
   const params = new URLSearchParams({
@@ -63,32 +35,23 @@ function login() {
 }
 
 function checkAuth() {
-  // Récupère le token depuis l'URL (#access_token=...) après redirect OAuth
   const hash = new URLSearchParams(window.location.hash.substring(1));
   const token = hash.get('access_token');
   if (token) {
     accessToken = token;
-    // Nettoyer l'URL
     history.replaceState(null, '', window.location.pathname);
     localStorage.setItem('gtoken_expiry', Date.now() + 3500 * 1000);
     localStorage.setItem('gtoken', token);
-    showApp();
-    return;
+    showApp(); return;
   }
-  // Vérifier token stocké
   const stored = localStorage.getItem('gtoken');
   const expiry = parseInt(localStorage.getItem('gtoken_expiry') || '0');
-  if (stored && Date.now() < expiry) {
-    accessToken = stored;
-    showApp();
-    return;
-  }
+  if (stored && Date.now() < expiry) { accessToken = stored; showApp(); return; }
   showAuthScreen();
 }
 
 function logout() {
-  localStorage.removeItem('gtoken');
-  localStorage.removeItem('gtoken_expiry');
+  localStorage.removeItem('gtoken'); localStorage.removeItem('gtoken_expiry');
   accessToken = null;
   document.getElementById('app').classList.add('hidden');
   document.getElementById('auth-screen').classList.remove('hidden');
@@ -102,128 +65,105 @@ function showAuthScreen() {
 function showApp() {
   document.getElementById('auth-screen').classList.add('hidden');
   document.getElementById('app').classList.remove('hidden');
-  loadCurrentMonth();
+  viewMonth = new Date().getMonth();
+  loadMonth(MONTHS[viewMonth]);
 }
 
 // ============================================================
-// API GOOGLE SHEETS
+// API SHEETS
 // ============================================================
 async function sheetsGet(range) {
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(range)}?valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=FORMATTED_STRING`;
-  const resp = await fetch(url, {
-    headers: { Authorization: 'Bearer ' + accessToken }
-  });
-  if (!resp.ok) {
-    if (resp.status === 401) { logout(); return null; }
-    throw new Error('Erreur lecture sheet: ' + resp.status);
-  }
+  const resp = await fetch(url, { headers: { Authorization: 'Bearer ' + accessToken } });
+  if (!resp.ok) { if (resp.status===401) { logout(); return null; } throw new Error('Erreur lecture: '+resp.status); }
   return resp.json();
 }
 
 async function sheetsAppend(range, values) {
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
   const resp = await fetch(url, {
-    method: 'POST',
-    headers: {
-      Authorization: 'Bearer ' + accessToken,
-      'Content-Type': 'application/json'
-    },
+    method:'POST', headers:{ Authorization:'Bearer '+accessToken, 'Content-Type':'application/json' },
     body: JSON.stringify({ values })
   });
-  if (!resp.ok) {
-    if (resp.status === 401) { logout(); return null; }
-    throw new Error('Erreur écriture sheet: ' + resp.status);
-  }
+  if (!resp.ok) { if (resp.status===401) { logout(); return null; } throw new Error('Erreur écriture: '+resp.status); }
   return resp.json();
 }
 
 // ============================================================
-// CHARGEMENT DES DONNÉES
+// NAVIGATION PAR MOIS
 // ============================================================
-function getCurrentMonthName() {
-  const months = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Aout','Septembre','Octobre','Novembre','Décembre'];
-  return months[new Date().getMonth()];
+function getViewMonthName() { return MONTHS[viewMonth]; }
+function getCurrentMonthName() { return MONTHS[new Date().getMonth()]; }
+function getNextMonthName() { return MONTHS[(new Date().getMonth()+1)%12]; }
+
+function updateMonthNav() {
+  const name = getViewMonthName();
+  const isCurrentMonth = viewMonth === new Date().getMonth();
+  document.getElementById('header-month').textContent = name;
+  document.getElementById('btn-month-next').style.opacity = isCurrentMonth ? '0.3' : '1';
+  document.getElementById('btn-month-next').style.pointerEvents = isCurrentMonth ? 'none' : 'auto';
+  // Sync le select mois dans le modal
+  document.getElementById('input-mois').value = name;
 }
 
-async function loadCurrentMonth() {
-  const mois = getCurrentMonthName();
-  document.getElementById('header-sub').textContent = mois + ' · chargement...';
+async function changeMonth(delta) {
+  const newMonth = viewMonth + delta;
+  if (newMonth < 0 || newMonth > new Date().getMonth()) return;
+  viewMonth = newMonth;
+  updateMonthNav();
+  await loadMonth(getViewMonthName());
+}
 
+// ============================================================
+// CHARGEMENT
+// ============================================================
+async function loadMonth(mois) {
+  document.getElementById('header-sub').textContent = mois + ' · chargement...';
   try {
     await loadTransactions(mois);
     await loadSoldes(mois);
     document.getElementById('header-sub').textContent = mois + ' · à jour';
   } catch(e) {
-    document.getElementById('header-sub').textContent = 'Erreur de chargement';
-    showToast('❌ Erreur: ' + e.message);
+    document.getElementById('header-sub').textContent = 'Erreur';
+    showToast('❌ ' + e.message);
   }
 }
 
 async function loadSoldes(mois) {
-  // Lire les cellules de solde avec FORMATTED_VALUE
-  // Retourne exactement ce que Google Sheets affiche, formules TODAY()/SUMIF évaluées côté serveur
-  // I5=fin de mois Perso, I6=aujourd'hui Perso
-  // P5=fin de mois Joint (-269€), P6=aujourd'hui Joint (2412€)
-  const cellRanges = [
-    mois + '!I5', mois + '!I6',
-    mois + '!P5', mois + '!P6',
-    mois + '!C5',
-    mois + '!S5', mois + '!S6'
-  ];
-  const rangeParams = cellRanges.map(function(r) { return 'ranges=' + encodeURIComponent(r); }).join('&');
-  const url = 'https://sheets.googleapis.com/v4/spreadsheets/' + SPREADSHEET_ID + '/values:batchGet?' + rangeParams + '&valueRenderOption=FORMATTED_VALUE';
+  const cellRanges = [mois+'!I5', mois+'!I6', mois+'!P5', mois+'!P6', mois+'!C5', mois+'!S5', mois+'!S6'];
+  const rangeParams = cellRanges.map(r => 'ranges='+encodeURIComponent(r)).join('&');
+  const url = 'https://sheets.googleapis.com/v4/spreadsheets/'+SPREADSHEET_ID+'/values:batchGet?'+rangeParams+'&valueRenderOption=FORMATTED_VALUE';
 
-  let persoEom = 0, persoToday = 0, jointEom = 0, jointToday = 0;
-  let epargne = 0, repY = 0, repE = 0;
-
+  let persoEom=0, persoToday=0, jointEom=0, jointToday=0, epargne=0, repY=0, repE=0;
   try {
-    const resp = await fetch(url, { headers: { Authorization: 'Bearer ' + accessToken } });
-    if (!resp.ok) throw new Error('Erreur lecture sheet: ' + resp.status);
+    const resp = await fetch(url, { headers: { Authorization: 'Bearer '+accessToken } });
+    if (!resp.ok) throw new Error('Erreur lecture: '+resp.status);
     const json = await resp.json();
     const vrs = json.valueRanges || [];
-
-    function parseFormatted(vr) {
-      const raw = vr && vr.values && vr.values[0] && vr.values[0][0];
-      if (raw === undefined || raw === null || raw === '') return 0;
-      if (typeof raw === 'number') return raw;
-      // Nettoyer valeur formatée FR : "2 412,18 €" "-269,09€" etc.
-      const cleaned = String(raw)
-        .replace(/[\u00a0\u202f ]/g, '') // espaces et insécables
-        .replace(/€/g, '')
-        .replace(/,/g, '.')
-        .replace(/[^0-9.\-]/g, '');
-      return parseFloat(cleaned) || 0;
-    }
-
-    persoEom   = parseFormatted(vrs[0]);
-    persoToday = parseFormatted(vrs[1]);
-    jointEom   = parseFormatted(vrs[2]);
-    jointToday = parseFormatted(vrs[3]);
-    epargne    = parseFormatted(vrs[4]);
-    repY       = parseFormatted(vrs[5]);
-    repE       = parseFormatted(vrs[6]);
-
-  } catch(e) {
-    console.error('loadSoldes error:', e);
-    showToast('Erreur soldes: ' + e.message);
-    return;
-  }
+    const pf = vr => {
+      const raw = vr?.values?.[0]?.[0];
+      if (!raw && raw!==0) return 0;
+      if (typeof raw==='number') return raw;
+      return parseFloat(String(raw).replace(/[\u00a0\u202f ]/g,'').replace(/€/g,'').replace(/,/g,'.').replace(/[^0-9.\-]/g,'')) || 0;
+    };
+    persoEom=pf(vrs[0]); persoToday=pf(vrs[1]);
+    jointEom=pf(vrs[2]); jointToday=pf(vrs[3]);
+    epargne=pf(vrs[4]); repY=pf(vrs[5]); repE=pf(vrs[6]);
+  } catch(e) { showToast('Erreur soldes: '+e.message); return; }
 
   setVal('perso-today', persoToday);
   setVal('perso-eom',   persoEom);
   setVal('joint-today', jointToday);
   setVal('joint-eom',   jointEom);
-
   document.getElementById('epargne-val').textContent = fmt(epargne);
 
   const total = Math.abs(repY) + Math.abs(repE);
   if (total > 0) {
-    const pctY = Math.round(Math.abs(repY) / total * 100);
-    const pctE = 100 - pctY;
+    const pctY = Math.round(Math.abs(repY)/total*100);
     document.getElementById('rep-y').textContent = fmt(repY);
     document.getElementById('rep-e').textContent = fmt(repE);
-    document.getElementById('rep-bar-y').style.width = pctY + '%';
-    document.getElementById('rep-bar-e').style.width = pctE + '%';
+    document.getElementById('rep-bar-y').style.width = pctY+'%';
+    document.getElementById('rep-bar-e').style.width = (100-pctY)+'%';
   }
 }
 
@@ -231,689 +171,421 @@ function setVal(id, val) {
   const el = document.getElementById(id);
   if (!el) return;
   el.textContent = fmt(val);
-  el.className = 'solde-row-val ' + (val >= 0 ? 'positive' : 'negative');
+  el.className = 'solde-row-val '+(val>=0?'positive':'negative');
 }
 
 async function loadTransactions(mois) {
-  // Lire toutes les données (lignes 13 à 120, colonnes A à R)
   const data = await sheetsGet(`${mois}!A13:T120`);
   if (!data || !data.values) return;
-
   sheetData[mois] = data.values;
   renderTransactions(data.values);
   renderBudgetBars(data.values);
   renderStats(data.values);
 }
 
+// ============================================================
+// RENDER TRANSACTIONS
+// ============================================================
 function parseRow(row, offset) {
-  // offset: index de début de colonne (0=A, 7=H, 14=O)
-  return {
-    date: row[offset]     || null,
-    lib:  row[offset + 1] || '',
-    mnt:  parseFloat(row[offset + 2]) || 0,
-    cat:  row[offset + 3] || ''
-  };
+  return { date: row[offset]||null, lib: row[offset+1]||'', mnt: parseFloat(row[offset+2])||0, cat: row[offset+3]||'' };
+}
+
+function sortByDate(a, b) {
+  if (!a.date) return 1; if (!b.date) return -1;
+  const da = parseDate(a.date), db = parseDate(b.date);
+  if (!da) return 1; if (!db) return -1;
+  return db - da;
 }
 
 function renderTransactions(rows) {
-  const offsets = { joint: 14, perso: 7, epargne: 0 };
+  const offsets = { joint:14, perso:7, epargne:0 };
   const offset = offsets[currentCompteFilter];
   const container = document.getElementById('tx-list');
-
   const items = [];
-  rows.forEach(row => {
-    const r = parseRow(row, offset);
-    if (r.lib && r.mnt) items.push(r);
-  });
-
-  if (items.length === 0) {
-    container.innerHTML = '<div class="budget-loading">Aucune opération</div>';
-    return;
-  }
-
-  // Trier par date décroissante
-  items.sort((a, b) => {
-    if (!a.date) return 1;
-    if (!b.date) return -1;
-    return new Date(b.date) > new Date(a.date) ? 1 : -1;
-  });
-
+  rows.forEach(row => { const r=parseRow(row,offset); if(r.lib && r.mnt) items.push(r); });
+  if (!items.length) { container.innerHTML='<div class="budget-loading">Aucune opération</div>'; return; }
+  items.sort(sortByDate);
   container.innerHTML = items.map(r => {
     const isIncome = r.mnt > 0;
-    const iconClass = getIconClass(r.cat, isIncome);
-    const icon = getIcon(r.cat, isIncome);
     const dateStr = r.date ? fmtDate(r.date) : '';
-    return `
-      <div class="tx-item">
-        <div class="tx-icon ${iconClass}"><i class="ti ${icon}"></i></div>
-        <div class="tx-info">
-          <div class="tx-label">${escHtml(r.lib)}</div>
-          <div class="tx-meta">${dateStr}${r.cat ? ' · ' + r.cat : ''}</div>
-        </div>
-        <div class="tx-amount ${isIncome ? 'income' : ''}">${isIncome ? '+' : '−'}${fmt(Math.abs(r.mnt))}</div>
-      </div>`;
+    return `<div class="tx-item">
+      <div class="tx-icon ${getIconClass(r.cat,isIncome)}"><i class="ti ${getIcon(r.cat,isIncome)}"></i></div>
+      <div class="tx-info">
+        <div class="tx-label">${escHtml(r.lib)}</div>
+        <div class="tx-meta">${dateStr}${r.cat?' · '+r.cat:''}</div>
+      </div>
+      <div class="tx-amount ${isIncome?'income':''}">${isIncome?'+':'−'}${fmt(Math.abs(r.mnt))}</div>
+    </div>`;
   }).join('');
 }
 
 // ============================================================
-// BUDGETS PERSONNALISABLES (stockés en T36/T37/T38 dans le sheet)
+// BUDGET BARS
+// ============================================================
+function renderBudgetBars(rows) {
+  const container = document.getElementById('budget-bars');
+  if (!rows[23]) { container.innerHTML='<div class="budget-loading">Aucune donnée budget</div>'; return; }
+
+  const budgetData = [
+    { label:'Courses',   restant: parseFloat(rows[23]?.[16])||0, total: parseFloat(rows[23]?.[19])||500 },
+    { label:'Carburant', restant: parseFloat(rows[24]?.[16])||0, total: parseFloat(rows[24]?.[19])||240 },
+    { label:'Autre',     restant: parseFloat(rows[25]?.[16])||0, total: parseFloat(rows[25]?.[19])||400 }
+  ];
+
+  const now = new Date();
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
+  const dayOfMonth = now.getDate();
+  const pctMois = Math.round(dayOfMonth/daysInMonth*100);
+
+  // Résumé fin de mois si on est dans les 5 derniers jours
+  const isEndOfMonth = dayOfMonth >= daysInMonth - 4;
+
+  container.innerHTML = `
+    <div class="budget-header-row">
+      <span class="budget-header-label">📅 Avancement du mois</span>
+      <span class="budget-header-value">${dayOfMonth} / ${daysInMonth} jours · <b>${pctMois}%</b></span>
+    </div>` +
+  budgetData.map(b => {
+    const depense = b.total - b.restant;
+    const pct = Math.min(100, b.total>0 ? Math.round(depense/b.total*100) : 0);
+    // Couleur intelligente : rouge si dépenses > avancement du mois + marge 10%
+    const surConsommation = pct - pctMois;
+    const cls = surConsommation > 10 ? 'bar-over' : surConsommation > 0 ? 'bar-warn' : 'bar-ok';
+    const resteColor = surConsommation > 10 ? 'var(--red)' : surConsommation > 0 ? 'var(--orange)' : 'var(--green-dark)';
+    return `<div class="budget-row">
+      <div class="budget-row-top">
+        <span class="budget-cat">${b.label}</span>
+        <span class="budget-amounts"><b>${fmt(depense)}</b> / ${b.total} €&nbsp;<span style="color:${resteColor}">reste ${fmt(b.restant)}</span></span>
+      </div>
+      <div class="bar-bg" style="position:relative">
+        <div class="bar-fill ${cls}" style="width:${pct}%"></div>
+        <div class="month-marker" style="left:${pctMois}%"></div>
+      </div>
+    </div>`;
+  }).join('') +
+  (isEndOfMonth ? `<div class="eom-summary">
+    <i class="ti ti-calendar-check"></i> Fin de mois — Total dépensé : <b>${fmt(budgetData.reduce((s,b)=>s+(b.total-b.restant),0))}</b>
+  </div>` : '');
+}
+
+// ============================================================
+// STATS
+// ============================================================
+function renderStats(rows) {
+  const cats = {};
+  rows.forEach((row,i) => {
+    if (i < 27) return;
+    const mnt = parseFloat(row[16])||0, cat = row[17]||'Autre';
+    if (mnt>0 && row[14]) cats[cat]=(cats[cat]||0)+mnt;
+  });
+  let chargesFixes = 0;
+  rows.forEach((row,i) => {
+    if (i<9||i>21) return;
+    const mnt=parseFloat(row[16])||0; if(mnt>0) chargesFixes+=mnt;
+  });
+  const container = document.getElementById('stats-bars');
+  const max = Math.max(...Object.values(cats), chargesFixes, 1);
+  let html = '';
+  if (chargesFixes>0) {
+    const pct=Math.round(chargesFixes/max*100);
+    html+=`<div class="budget-row"><div class="budget-row-top"><span class="budget-cat">Charges fixes</span><span class="budget-amounts"><b>${fmt(chargesFixes)}</b></span></div><div class="bar-bg"><div class="bar-fill bar-ok" style="width:${pct}%"></div></div></div>`;
+  }
+  Object.entries(cats).sort((a,b)=>b[1]-a[1]).forEach(([cat,val]) => {
+    const pct=Math.round(val/max*100);
+    html+=`<div class="budget-row"><div class="budget-row-top"><span class="budget-cat">${cat}</span><span class="budget-amounts"><b>${fmt(val)}</b></span></div><div class="bar-bg"><div class="bar-fill bar-ok" style="width:${pct}%"></div></div></div>`;
+  });
+  container.innerHTML = html||'<div class="budget-loading">Aucune donnée</div>';
+}
+
+// ============================================================
+// BUDGETS SETTINGS (T36/T37/T38)
 // ============================================================
 async function getBudgetsFromSheet(mois) {
-  const cells = [`${mois}!T36`, `${mois}!T37`, `${mois}!T38`];
-  const params = cells.map(r => `ranges=${encodeURIComponent(r)}`).join('&');
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values:batchGet?${params}&valueRenderOption=UNFORMATTED_VALUE`;
+  const cells=[`${mois}!T36`,`${mois}!T37`,`${mois}!T38`];
+  const params=cells.map(r=>`ranges=${encodeURIComponent(r)}`).join('&');
   try {
-    const resp = await fetch(url, { headers: { Authorization: 'Bearer ' + accessToken } });
-    if (!resp.ok) return { courses: 500, carburant: 240, autre: 400 };
-    const json = await resp.json();
-    const vrs = json.valueRanges || [];
-    return {
-      courses:   parseFloat(vrs[0]?.values?.[0]?.[0]) || 500,
-      carburant: parseFloat(vrs[1]?.values?.[0]?.[0]) || 240,
-      autre:     parseFloat(vrs[2]?.values?.[0]?.[0]) || 400
-    };
-  } catch(e) {
-    return { courses: 500, carburant: 240, autre: 400 };
-  }
+    const resp=await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values:batchGet?${params}&valueRenderOption=UNFORMATTED_VALUE`,{headers:{Authorization:'Bearer '+accessToken}});
+    if (!resp.ok) return {courses:500,carburant:240,autre:400};
+    const json=await resp.json(); const vrs=json.valueRanges||[];
+    return { courses:parseFloat(vrs[0]?.values?.[0]?.[0])||500, carburant:parseFloat(vrs[1]?.values?.[0]?.[0])||240, autre:parseFloat(vrs[2]?.values?.[0]?.[0])||400 };
+  } catch(e) { return {courses:500,carburant:240,autre:400}; }
 }
 
 async function saveBudgetsToSheet(mois, courses, carburant, autre) {
-  // Écrire dans T36, T37, T38 via batchUpdate
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values:batchUpdate`;
-  const body = {
-    valueInputOption: 'RAW',
-    data: [
-      { range: `${mois}!T36`, values: [[courses]] },
-      { range: `${mois}!T37`, values: [[carburant]] },
-      { range: `${mois}!T38`, values: [[autre]] }
-    ]
-  };
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
+  const resp=await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values:batchUpdate`,{
+    method:'POST', headers:{Authorization:'Bearer '+accessToken,'Content-Type':'application/json'},
+    body:JSON.stringify({valueInputOption:'RAW',data:[
+      {range:`${mois}!T36`,values:[[courses]]},{range:`${mois}!T37`,values:[[carburant]]},{range:`${mois}!T38`,values:[[autre]]}
+    ]})
   });
-  if (!resp.ok) throw new Error('Erreur écriture budgets: ' + resp.status);
+  if (!resp.ok) throw new Error('Erreur écriture budgets: '+resp.status);
 }
 
 async function openSettings() {
-  const mois = getCurrentMonthName();
+  const mois = getViewMonthName();
   const b = await getBudgetsFromSheet(mois);
   document.getElementById('budget-courses').value   = b.courses;
   document.getElementById('budget-carburant').value = b.carburant;
   document.getElementById('budget-autre').value     = b.autre;
-
-  // Mettre à jour le label du bouton mois suivant
   const nextName = getNextMonthName();
-  document.getElementById('btn-prepare-label').textContent = 'Préparer ' + nextName + ' 2026';
-
-  // Vérifier si l'onglet suivant existe déjà
+  document.getElementById('btn-prepare-label').textContent = 'Préparer '+nextName+' 2026';
   const exists = await sheetExists(nextName);
   const btn = document.getElementById('btn-prepare-month');
   const info = document.getElementById('next-month-info');
-  if (exists) {
-    btn.disabled = true;
-    btn.style.opacity = '0.5';
-    info.textContent = "L'onglet " + nextName + " existe déjà dans le sheet.";
-  } else {
-    btn.disabled = false;
-    btn.style.opacity = '1';
-    info.textContent = 'Crée automatiquement l\'onglet ' + nextName + ' à partir de ' + mois + '.';
-  }
-
+  btn.disabled = exists; btn.style.opacity = exists?'0.4':'1';
+  info.textContent = exists ? "L'onglet "+nextName+" existe déjà." : "Créer l'onglet "+nextName+" à partir de "+mois+".";
   document.getElementById('modal-settings').classList.add('open');
 }
 
-function closeSettings() {
-  document.getElementById('modal-settings').classList.remove('open');
-}
+function closeSettings() { document.getElementById('modal-settings').classList.remove('open'); }
 
 async function saveSettings() {
-  const courses   = parseFloat(document.getElementById('budget-courses').value)   || 500;
-  const carburant = parseFloat(document.getElementById('budget-carburant').value) || 240;
-  const autre     = parseFloat(document.getElementById('budget-autre').value)     || 400;
-
-  const btn = document.getElementById('btn-save-settings');
-  btn.disabled = true;
-  btn.querySelector('span') ? btn.querySelector('span').textContent = 'Enregistrement...' : null;
-
+  const courses=parseFloat(document.getElementById('budget-courses').value)||500;
+  const carburant=parseFloat(document.getElementById('budget-carburant').value)||240;
+  const autre=parseFloat(document.getElementById('budget-autre').value)||400;
+  const btn=document.getElementById('btn-save-settings');
+  btn.disabled=true;
   try {
-    const mois = getCurrentMonthName();
-    await saveBudgetsToSheet(mois, courses, carburant, autre);
-    closeSettings();
-    showToast('✅ Budgets mis à jour dans le sheet !');
-    // Recharger pour refléter les nouvelles valeurs
-    sheetData = {};
-    await loadCurrentMonth();
-  } catch(e) {
-    showToast('❌ Erreur: ' + e.message);
-  } finally {
-    btn.disabled = false;
-  }
+    await saveBudgetsToSheet(getViewMonthName(), courses, carburant, autre);
+    closeSettings(); showToast('✅ Budgets enregistrés !');
+    sheetData={}; await loadMonth(getViewMonthName());
+  } catch(e) { showToast('❌ '+e.message); } finally { btn.disabled=false; }
 }
 
-function renderBudgetBars(rows) {
-  // Lire directement depuis les lignes 36-38 du sheet (index 23-25 dans rows) :
-  // col 16 (Q) = budget restant calculé par la formule MAX(0; T-SUMIF)
-  // col 19 (T) = budget total saisi
-  const container = document.getElementById('budget-bars');
-
-  if (!rows[23]) {
-    container.innerHTML = '<div class="budget-loading">Aucune donnée budget</div>';
-    return;
-  }
-
-  const budgetData = [
-    { label: 'Courses',   restant: parseFloat(rows[23]?.[16]) || 0, total: parseFloat(rows[23]?.[19]) || 500 },
-    { label: 'Carburant', restant: parseFloat(rows[24]?.[16]) || 0, total: parseFloat(rows[24]?.[19]) || 240 },
-    { label: 'Autre',     restant: parseFloat(rows[25]?.[16]) || 0, total: parseFloat(rows[25]?.[19]) || 400 }
-  ];
-
-  // Indicateur temporel : position dans le mois (ex: 15 juin / 30 jours = 50%)
-  const now = new Date();
-  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  const dayOfMonth = now.getDate();
-  const pctMois = Math.round(dayOfMonth / daysInMonth * 100);
-
-  container.innerHTML = `
-    <div style="padding:8px 14px 6px;display:flex;align-items:center;justify-content:space-between;border-bottom:0.5px solid var(--border)">
-      <span style="font-size:11px;color:var(--text2)">📅 Avancement du mois</span>
-      <span style="font-size:11px;font-weight:600;color:var(--text2)">${dayOfMonth} / ${daysInMonth} jours · <span style="color:var(--green-dark)">${pctMois}%</span></span>
-    </div>` +
-  budgetData.map(b => {
-    const depense = b.total - b.restant;
-    const pct = Math.min(100, Math.round(depense / b.total * 100));
-    // Couleur selon position vs avancement du mois
-    const cls = pct > pctMois + 15 ? 'bar-over' : pct > pctMois ? 'bar-warn' : 'bar-ok';
-    const resteColor = pct > pctMois + 15 ? 'var(--red)' : pct > pctMois ? 'var(--orange)' : 'var(--green-dark)';
-    return `
-      <div class="budget-row">
-        <div class="budget-row-top">
-          <span class="budget-cat">${b.label}</span>
-          <span class="budget-amounts"><b>${fmt(depense)}</b> / ${b.total} € &nbsp;<span style="color:${resteColor}">reste ${fmt(b.restant)}</span></span>
-        </div>
-        <div class="bar-bg" style="position:relative">
-          <div class="bar-fill ${cls}" style="width:${pct}%"></div>
-          <div style="position:absolute;top:-2px;bottom:-2px;left:${pctMois}%;width:2px;background:var(--text2);opacity:0.4;border-radius:1px" title="Avancement du mois"></div>
-        </div>
-      </div>`;
-  }).join('');
+// ============================================================
+// PRÉPARER MOIS SUIVANT
+// ============================================================
+async function sheetExists(name) {
+  try {
+    const resp=await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}?fields=sheets.properties.title`,{headers:{Authorization:'Bearer '+accessToken}});
+    if (!resp.ok) return false;
+    const json=await resp.json();
+    return (json.sheets||[]).some(s=>s.properties.title===name);
+  } catch(e) { return false; }
 }
 
-function renderStats(rows) {
-  const cats = {};
-  // Joint charges variables (offset 14, à partir de row 27)
-  rows.forEach((row, i) => {
-    if (i < 27) return;
-    const mnt = parseFloat(row[16]) || 0;
-    const cat = row[17] || 'Autre';
-    if (mnt > 0 && row[14]) cats[cat] = (cats[cat] || 0) + mnt;
-  });
+function addMonths(dateStr, n) {
+  if (!dateStr||typeof dateStr!=='string') return dateStr;
+  const parts=dateStr.split('/'); if(parts.length!==3) return dateStr;
+  const [d,m,y]=parts.map(Number);
+  const dt=new Date(y, m-1+n, d);
+  return `${String(dt.getDate()).padStart(2,'0')}/${String(dt.getMonth()+1).padStart(2,'0')}/${dt.getFullYear()}`;
+}
 
-  // Joint charges fixes (offset 14, rows 9-21 ~ lignes 22-34)
-  let chargesFixes = 0;
-  rows.forEach((row, i) => {
-    if (i < 9 || i > 21) return;
-    const mnt = parseFloat(row[16]) || 0;
-    if (mnt > 0) chargesFixes += mnt;
-  });
+async function prepareNextMonth() {
+  const moisActuel=getCurrentMonthName(), moisSuivant=getNextMonthName();
+  const btn=document.getElementById('btn-prepare-month');
+  const origLabel=document.getElementById('btn-prepare-label').textContent;
+  btn.disabled=true; document.getElementById('btn-prepare-label').textContent='Préparation...';
+  try {
+    const metaResp=await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}?fields=sheets.properties`,{headers:{Authorization:'Bearer '+accessToken}});
+    const meta=await metaResp.json();
+    const cur=meta.sheets.find(s=>s.properties.title===moisActuel);
+    if (!cur) throw new Error('Onglet '+moisActuel+' introuvable');
 
-  const container = document.getElementById('stats-bars');
-  const max = Math.max(...Object.values(cats), chargesFixes, 1);
+    // Dupliquer l'onglet
+    const dupResp=await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}:batchUpdate`,{
+      method:'POST', headers:{Authorization:'Bearer '+accessToken,'Content-Type':'application/json'},
+      body:JSON.stringify({requests:[{duplicateSheet:{sourceSheetId:cur.properties.sheetId,insertSheetIndex:cur.properties.index+1,newSheetName:moisSuivant}}]})
+    });
+    if (!dupResp.ok) throw new Error('Erreur copie: '+dupResp.status);
 
-  let html = '';
-  if (chargesFixes > 0) {
-    const pct = Math.round(chargesFixes / max * 100);
-    html += `<div class="budget-row">
-      <div class="budget-row-top"><span class="budget-cat">Charges fixes</span><span class="budget-amounts"><b>${fmt(chargesFixes)}</b></span></div>
-      <div class="bar-bg"><div class="bar-fill bar-ok" style="width:${pct}%"></div></div>
-    </div>`;
-  }
+    // Lire soldes fin de mois
+    const soldeResp=await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values:batchGet?ranges=${encodeURIComponent(moisActuel+'!C5')}&ranges=${encodeURIComponent(moisActuel+'!I5')}&ranges=${encodeURIComponent(moisActuel+'!P5')}&valueRenderOption=UNFORMATTED_VALUE`,{headers:{Authorization:'Bearer '+accessToken}});
+    const soldeJson=await soldeResp.json(); const vrs=soldeJson.valueRanges||[];
+    const soldeEpargne=parseFloat(vrs[0]?.values?.[0]?.[0])||0;
+    const soldePerso=parseFloat(vrs[1]?.values?.[0]?.[0])||0;
+    const soldeJoint=parseFloat(vrs[2]?.values?.[0]?.[0])||0;
 
-  Object.entries(cats)
-    .sort((a, b) => b[1] - a[1])
-    .forEach(([cat, val]) => {
-      const pct = Math.round(val / max * 100);
-      html += `<div class="budget-row">
-        <div class="budget-row-top"><span class="budget-cat">${cat}</span><span class="budget-amounts"><b>${fmt(val)}</b></span></div>
-        <div class="bar-bg"><div class="bar-fill bar-ok" style="width:${pct}%"></div></div>
-      </div>`;
+    // Lire charges fixes pour décaler dates
+    const fixeResp=await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values:batchGet?ranges=${encodeURIComponent(moisSuivant+'!H22:J36')}&ranges=${encodeURIComponent(moisSuivant+'!O22:Q33')}&valueRenderOption=FORMATTED_VALUE`,{headers:{Authorization:'Bearer '+accessToken}});
+    const fixeJson=await fixeResp.json();
+    const newPerso=(fixeJson.valueRanges?.[0]?.values||[]).map(r=>r?.[0]?[addMonths(r[0],1),r[1]||'',r[2]||'']:r);
+    const newJoint=(fixeJson.valueRanges?.[1]?.values||[]).map(r=>r?.[0]?[addMonths(r[0],1),r[1]||'',r[2]||'']:r);
+
+    // Écrire les mises à jour
+    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values:batchUpdate`,{
+      method:'POST', headers:{Authorization:'Bearer '+accessToken,'Content-Type':'application/json'},
+      body:JSON.stringify({valueInputOption:'USER_ENTERED',data:[
+        {range:`${moisSuivant}!B1`,values:[[moisSuivant]]},
+        {range:`${moisSuivant}!C13`,values:[[soldeEpargne]]},
+        {range:`${moisSuivant}!J13`,values:[[soldePerso]]},
+        {range:`${moisSuivant}!Q13`,values:[[soldeJoint]]},
+        {range:`${moisSuivant}!J14:J19`,values:[[''],[''],[''],[''],[''],['`']]},
+        {range:`${moisSuivant}!Q14:Q19`,values:[[''],[''],[''],[''],[''],['`']]},
+        ...(newPerso.length?[{range:`${moisSuivant}!H22:J36`,values:newPerso}]:[]),
+        ...(newJoint.length?[{range:`${moisSuivant}!O22:Q33`,values:newJoint}]:[]),
+      ]})
     });
 
-  container.innerHTML = html || '<div class="budget-loading">Aucune donnée</div>';
+    // Effacer charges variables
+    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values:batchClear`,{
+      method:'POST', headers:{Authorization:'Bearer '+accessToken,'Content-Type':'application/json'},
+      body:JSON.stringify({ranges:[`${moisSuivant}!H36:K300`,`${moisSuivant}!O39:R300`]})
+    });
+
+    closeSettings(); showToast('✅ Onglet '+moisSuivant+' créé !', 3000);
+  } catch(e) {
+    showToast('❌ '+e.message, 4000); btn.disabled=false;
+    document.getElementById('btn-prepare-label').textContent=origLabel;
+  }
 }
 
 // ============================================================
-// AJOUT D'UNE OPÉRATION
+// AJOUT DÉPENSE
 // ============================================================
 async function submitDepense() {
-  const compte = getChipVal('chips-compte');
-  const type = getChipVal('chips-type');
-  const montant = parseFloat(document.getElementById('input-montant').value);
-  const libelle = document.getElementById('input-libelle').value.trim();
-  const date = document.getElementById('input-date').value;
-  const categorie = getChipVal('chips-cat');
-saveMapping(libelle, categorie);
-  const mois = document.getElementById('input-mois').value;
+  const compte=getChipVal('chips-compte'), type=getChipVal('chips-type');
+  const montant=parseFloat(document.getElementById('input-montant').value);
+  const libelle=document.getElementById('input-libelle').value.trim();
+  const date=document.getElementById('input-date').value;
+  const categorie=getChipVal('chips-cat');
+  const mois=document.getElementById('input-mois').value;
+  const errEl=document.getElementById('submit-error');
 
-  const errEl = document.getElementById('submit-error');
-  if (!montant || isNaN(montant)) { errEl.textContent = 'Montant invalide'; errEl.classList.remove('hidden'); return; }
-  if (!libelle) { errEl.textContent = 'Libellé requis'; errEl.classList.remove('hidden'); return; }
+  if (!montant||isNaN(montant)) { errEl.textContent='Montant invalide'; errEl.classList.remove('hidden'); return; }
+  if (!libelle) { errEl.textContent='Libellé requis'; errEl.classList.remove('hidden'); return; }
   errEl.classList.add('hidden');
+  if (!ZONES[compte]||!ZONES[compte][type]) { errEl.textContent=`Combinaison "${compte}" / "${type}" non valide`; errEl.classList.remove('hidden'); return; }
 
-  if (!ZONES[compte] || !ZONES[compte][type]) {
-    errEl.textContent = `Combinaison "${compte}" / "${type}" non valide`;
-    errEl.classList.remove('hidden');
-    return;
-  }
+  const zone=ZONES[compte][type];
+  const [y,m,d]=date.split('-');
+  const dateStr=`${d}/${m}/${y}`;
+  const row=compte==='Épargne'?[dateStr,libelle,montant]:[dateStr,libelle,montant,categorie];
 
-  const zone = ZONES[compte][type];
-  const range = `${mois}!${zone.col}${zone.startRow}`;
-
-  // Format date DD/MM/YYYY
-  const [y, m, d] = date.split('-');
-  const dateStr = `${d}/${m}/${y}`;
-
-  // Pour les revenus le montant est positif, pour les dépenses négatif
-  const mntVal = (type === 'Revenu') ? montant : montant;
-
-  let row;
-  if (compte === 'Épargne') {
-    row = [dateStr, libelle, mntVal];
-  } else {
-    row = [dateStr, libelle, mntVal, categorie];
-  }
-
-  const btn = document.getElementById('btn-submit');
-  btn.disabled = true;
-  document.getElementById('btn-submit-label').textContent = 'Enregistrement...';
-
+  const btn=document.getElementById('btn-submit');
+  btn.disabled=true; document.getElementById('btn-submit-label').textContent='Enregistrement...';
   try {
-    await sheetsAppend(range, [row]);
-    closeModal();
-    showToast('✅ Enregistré !');
-    // Recharger les données
-    sheetData = {};
-    await loadCurrentMonth();
-  } catch(e) {
-    errEl.textContent = 'Erreur: ' + e.message;
-    errEl.classList.remove('hidden');
-  } finally {
-    btn.disabled = false;
-    document.getElementById('btn-submit-label').textContent = 'Enregistrer';
-  }
+    await sheetsAppend(`${mois}!${zone.col}${zone.startRow}`,[row]);
+    // Vibration haptique
+    if (navigator.vibrate) navigator.vibrate(50);
+    closeModal(); showToast('✅ Enregistré !');
+    sheetData={}; await loadMonth(mois);
+  } catch(e) { errEl.textContent='Erreur: '+e.message; errEl.classList.remove('hidden');
+  } finally { btn.disabled=false; document.getElementById('btn-submit-label').textContent='Enregistrer'; }
 }
 
 // ============================================================
-// HELPERS UI
+// HELPERS
 // ============================================================
-
-// ============================================================
-// AUTO CATEGORISATION
-// ============================================================
-
-function autoCategorie(libelle) {
-  if (!libelle) return null;
-
-  const saved = getMapping(libelle);
-  if (saved) return saved;
-
-  const l = libelle.toLowerCase();
-
-  if (l.includes("leclerc") || l.includes("carrefour") || l.includes("intermarché"))
-    return "Courses";
-
-  if (l.includes("total") || l.includes("essence") || l.includes("station"))
-    return "Carburant/transport";
-
-  if (l.includes("pharmacie") || l.includes("médecin"))
-    return "Santé";
-
-  if (l.includes("ciné") || l.includes("netflix") || l.includes("restaurant"))
-    return "Loisir";
-
-  if (l.includes("amazon") || l.includes("ikea"))
-    return "Deco/Maison";
-
-  return "Autre";
-}
-
-function quickAdd(cat) {
-
-  document.querySelectorAll('#chips-cat .chip').forEach(chip => {
-    chip.classList.toggle('selected', chip.dataset.val === cat);
-  });
-
-  document.getElementById('input-montant').focus();
-}
-function saveMapping(libelle, categorie) {
-  const map = JSON.parse(localStorage.getItem("catMap") || "{}");
-  map[libelle.toLowerCase()] = categorie;
-  localStorage.setItem("catMap", JSON.stringify(map));
-}
-
-function getMapping(libelle) {
-  const map = JSON.parse(localStorage.getItem("catMap") || "{}");
-  return map[libelle.toLowerCase()] || null;
-}
-
-
 function fmt(val) {
-  if (val === null || val === undefined || isNaN(val)) return '—';
-  const n = Math.abs(val);
-  const str = n.toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
-  return (val < 0 ? '−' : '') + str + ' €';
+  if (val===null||val===undefined||isNaN(val)) return '—';
+  const n=Math.abs(val);
+  // Arrondi à 2 décimales, mais sans afficher les centimes si entier
+  const str=n.toLocaleString('fr-FR',{minimumFractionDigits:0,maximumFractionDigits:2});
+  return (val<0?'−':'')+str+' €';
+}
+
+function parseDate(d) {
+  if (!d) return null;
+  if (typeof d==='string'&&d.match(/^\d{2}\/\d{2}\/\d{4}$/)) {
+    const [day,month,year]=d.split('/');
+    return new Date(parseInt(year),parseInt(month)-1,parseInt(day));
+  }
+  if (typeof d==='string'&&d.match(/^\d{4}-\d{2}-\d{2}/)) return new Date(d);
+  return new Date(d);
 }
 
 function fmtDate(d) {
   if (!d) return '';
   try {
-    let date;
-    if (typeof d === 'string' && d.match(/^\d{2}\/\d{2}\/\d{4}$/)) {
-      // Format DD/MM/YYYY → parser manuellement pour éviter l'interprétation MM/DD
-      const [day, month, year] = d.split('/');
-      date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
-    } else if (typeof d === 'string' && d.match(/^\d{4}-\d{2}-\d{2}/)) {
-      // Format ISO YYYY-MM-DD
-      date = new Date(d);
-    } else {
-      date = new Date(d);
-    }
-    if (isNaN(date)) return d;
-    return date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+    const date=parseDate(d);
+    if (!date||isNaN(date)) return d;
+    return date.toLocaleDateString('fr-FR',{day:'numeric',month:'short'});
   } catch { return d; }
 }
 
-function escHtml(s) {
-  return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
+function escHtml(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function getChipVal(gid) { const s=document.querySelector(`#${gid} .chip.selected`); return s?s.dataset.val:''; }
 
-function getChipVal(groupId) {
-  const sel = document.querySelector(`#${groupId} .chip.selected`);
-  return sel ? sel.dataset.val : '';
-}
-
-function getIconClass(cat, isIncome) {
+function getIconClass(cat,isIncome) {
   if (isIncome) return 'income';
-  const c = (cat || '').toLowerCase();
-  if (c.includes('cours') || c.includes('alim') || c.includes('primeur') || c.includes('leclerc')) return 'courses';
-  if (c.includes('carbu') || c.includes('transport') || c.includes('essence')) return 'transport';
-  if (c.includes('santé') || c.includes('médec') || c.includes('psy') || c.includes('pharmac')) return 'sante';
-  if (c.includes('loisir') || c.includes('cadeau') || c.includes('vacance')) return 'loisir';
-  if (c.includes('fix') || c.includes('pret') || c.includes('crèche') || c.includes('loyer')) return 'fix';
+  const c=(cat||'').toLowerCase();
+  if (c.includes('cours')||c.includes('alim')||c.includes('leclerc')||c.includes('carrefour')||c.includes('primeur')) return 'courses';
+  if (c.includes('carbu')||c.includes('transport')||c.includes('essence')) return 'transport';
+  if (c.includes('santé')||c.includes('médec')||c.includes('psy')||c.includes('pharmac')) return 'sante';
+  if (c.includes('loisir')||c.includes('vacance')) return 'loisir';
+  if (c.includes('fix')||c.includes('pret')||c.includes('crèche')||c.includes('loyer')) return 'fix';
+  if (c.includes('cadeau')) return 'loisir';
   return 'autre';
 }
 
-function getIcon(cat, isIncome) {
+function getIcon(cat,isIncome) {
   if (isIncome) return 'ti-arrow-down-circle';
-  const c = (cat || '').toLowerCase();
-  if (c.includes('cours') || c.includes('alim')) return 'ti-shopping-cart';
-  if (c.includes('carbu') || c.includes('essence')) return 'ti-gas-station';
-  if (c.includes('santé') || c.includes('médec') || c.includes('psy')) return 'ti-heart-rate-monitor';
+  const c=(cat||'').toLowerCase();
+  if (c.includes('cours')||c.includes('alim')) return 'ti-shopping-cart';
+  if (c.includes('carbu')||c.includes('essence')) return 'ti-gas-station';
+  if (c.includes('santé')||c.includes('médec')) return 'ti-heart-rate-monitor';
   if (c.includes('loisir')) return 'ti-confetti';
-  if (c.includes('pret') || c.includes('prêt')) return 'ti-building-bank';
-  if (c.includes('crèche') || c.includes('école')) return 'ti-school';
+  if (c.includes('pret')||c.includes('prêt')) return 'ti-building-bank';
+  if (c.includes('crèche')) return 'ti-school';
   if (c.includes('cadeau')) return 'ti-gift';
-  if (c.includes('animal') || c.includes('vét')) return 'ti-paw';
+  if (c.includes('animal')||c.includes('vét')) return 'ti-paw';
   return 'ti-receipt';
 }
 
-function showToast(msg, duration = 2500) {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.classList.remove('hidden');
-  setTimeout(() => t.classList.add('hidden'), duration);
+function showToast(msg, duration=2500) {
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.classList.remove('hidden');
+  setTimeout(()=>t.classList.add('hidden'), duration);
 }
 
 function openModal() {
-  document.getElementById('input-date').value = new Date().toISOString().split('T')[0];
-setTimeout(() => {
-  document.getElementById('input-libelle').focus();
-}, 200);
-  document.getElementById('input-mois').value = getCurrentMonthName();
+  document.getElementById('input-date').value=new Date().toISOString().split('T')[0];
+  document.getElementById('input-mois').value=getViewMonthName();
   document.getElementById('modal').classList.add('open');
   document.getElementById('submit-error').classList.add('hidden');
-  document.getElementById('input-montant').value = '';
-  document.getElementById('input-libelle').value = '';
-
+  document.getElementById('input-montant').value='';
+  document.getElementById('input-libelle').value='';
 }
 
-function closeModal() {
-  document.getElementById('modal').classList.remove('open');
-}
-
-// ============================================================
-// NEXT MONTH HELPERS
-function getNextMonthName() {
-  const months = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Aout','Septembre','Octobre','Novembre','Décembre'];
-  return months[(new Date().getMonth() + 1) % 12];
-}
-
-async function sheetExists(name) {
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}?fields=sheets.properties.title`;
-  try {
-    const resp = await fetch(url, { headers: { Authorization: 'Bearer ' + accessToken } });
-    if (!resp.ok) return false;
-    const json = await resp.json();
-    return (json.sheets || []).some(s => s.properties.title === name);
-  } catch(e) { return false; }
-}
-
-function addMonths(dateStr, n) {
-  // dateStr = "DD/MM/YYYY", retourne "DD/MM/YYYY" avec +n mois
-  if (!dateStr || typeof dateStr !== 'string') return dateStr;
-  const parts = dateStr.split('/');
-  if (parts.length !== 3) return dateStr;
-  const [d, m, y] = parts.map(Number);
-  const dt = new Date(y, m - 1 + n, d);
-  const dd = String(dt.getDate()).padStart(2, '0');
-  const mm = String(dt.getMonth() + 1).padStart(2, '0');
-  const yy = dt.getFullYear();
-  return `${dd}/${mm}/${yy}`;
-}
-
-async function prepareNextMonth() {
-  const moisActuel = getCurrentMonthName();
-  const moisSuivant = getNextMonthName();
-  const btn = document.getElementById('btn-prepare-month');
-  const origLabel = document.getElementById('btn-prepare-label').textContent;
-
-  btn.disabled = true;
-  document.getElementById('btn-prepare-label').textContent = 'Préparation en cours...';
-
-  try {
-    // 1. Récupérer le sheetId de l'onglet courant
-    const metaResp = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}?fields=sheets.properties`,
-      { headers: { Authorization: 'Bearer ' + accessToken } }
-    );
-    const meta = await metaResp.json();
-    const currentSheet = meta.sheets.find(s => s.properties.title === moisActuel);
-    if (!currentSheet) throw new Error('Onglet ' + moisActuel + ' introuvable');
-    const sourceSheetId = currentSheet.properties.sheetId;
-    const sourceIndex   = currentSheet.properties.index;
-
-    // 2. Copier l'onglet (duplicateSheet)
-    const dupResp = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}:batchUpdate`,
-      {
-        method: 'POST',
-        headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ requests: [{
-          duplicateSheet: {
-            sourceSheetId: sourceSheetId,
-            insertSheetIndex: sourceIndex + 1,
-            newSheetName: moisSuivant
-          }
-        }]})
-      }
-    );
-    if (!dupResp.ok) throw new Error('Erreur copie onglet: ' + dupResp.status);
-
-    // 3. Lire les soldes fin de mois pour les anciens soldes
-    const soldeResp = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values:batchGet?` +
-      `ranges=${encodeURIComponent(moisActuel+'!C5')}&ranges=${encodeURIComponent(moisActuel+'!I5')}&ranges=${encodeURIComponent(moisActuel+'!P5')}` +
-      `&valueRenderOption=UNFORMATTED_VALUE`,
-      { headers: { Authorization: 'Bearer ' + accessToken } }
-    );
-    const soldeJson = await soldeResp.json();
-    const vrs = soldeJson.valueRanges || [];
-    const soldeEpargne = parseFloat(vrs[0]?.values?.[0]?.[0]) || 0;
-    const soldePerso   = parseFloat(vrs[1]?.values?.[0]?.[0]) || 0;
-    const soldeJoint   = parseFloat(vrs[2]?.values?.[0]?.[0]) || 0;
-
-    // 4. Lire les charges fixes Perso (H22:J36) et Joint (O22:Q33) pour décaler les dates
-    const fixeResp = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values:batchGet?` +
-      `ranges=${encodeURIComponent(moisSuivant+'!H22:J36')}&ranges=${encodeURIComponent(moisSuivant+'!O22:Q33')}` +
-      `&valueRenderOption=FORMATTED_VALUE`,
-      { headers: { Authorization: 'Bearer ' + accessToken } }
-    );
-    const fixeJson  = await fixeResp.json();
-    const fixePerso = (fixeJson.valueRanges?.[0]?.values || []);
-    const fixeJoint = (fixeJson.valueRanges?.[1]?.values || []);
-
-    // Décaler les dates (+1 mois) dans col H (index 0 de H22:J36) et O (index 0 de O22:Q33)
-    const newFixePerso = fixePerso.map(row => {
-      if (!row || !row[0]) return row;
-      return [addMonths(row[0], 1), row[1] || '', row[2] || ''];
-    });
-    const newFixeJoint = fixeJoint.map(row => {
-      if (!row || !row[0]) return row;
-      return [addMonths(row[0], 1), row[1] || '', row[2] || ''];
-    });
-
-    // 5. Préparer toutes les modifications via batchUpdate values
-    const updates = [
-      // Nom du mois en B1
-      { range: `${moisSuivant}!B1`, values: [[moisSuivant]] },
-      // Anciens soldes
-      { range: `${moisSuivant}!C13`, values: [[soldeEpargne]] },
-      { range: `${moisSuivant}!J13`, values: [[soldePerso]] },
-      { range: `${moisSuivant}!Q13`, values: [[soldeJoint]] },
-      // Effacer montants revenus Perso (col J = index 2 de H14:J19)
-      { range: `${moisSuivant}!J14:J19`, values: [[''],[''],[''],[''],[''],['']].map(v => v) },
-      // Effacer montants revenus Joint (col Q)
-      { range: `${moisSuivant}!Q14:Q19`, values: [[''],[''],[''],[''],[''],['']].map(v => v) },
-      // Charges fixes avec dates décalées
-      { range: `${moisSuivant}!H22:J36`, values: newFixePerso.length ? newFixePerso : [[]] },
-      { range: `${moisSuivant}!O22:Q33`, values: newFixeJoint.length ? newFixeJoint : [[]] },
-    ];
-
-    const updateResp = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values:batchUpdate`,
-      {
-        method: 'POST',
-        headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ valueInputOption: 'USER_ENTERED', data: updates })
-      }
-    );
-    if (!updateResp.ok) throw new Error('Erreur mise à jour: ' + updateResp.status);
-
-    // 6. Effacer les charges variables via batchUpdate (clearValues)
-    const clearResp = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values:batchClear`,
-      {
-        method: 'POST',
-        headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ranges: [
-          `${moisSuivant}!H36:K300`,  // variables Perso
-          `${moisSuivant}!O39:R300`,  // variables Joint
-          `${moisSuivant}!J14:J19`,   // revenus Perso montants
-          `${moisSuivant}!Q14:Q19`,   // revenus Joint montants
-        ]})
-      }
-    );
-    if (!clearResp.ok) throw new Error('Erreur effacement: ' + clearResp.status);
-
-    closeSettings();
-    showToast('✅ Onglet ' + moisSuivant + ' créé !', 3000);
-
-  } catch(e) {
-    showToast('❌ ' + e.message, 4000);
-    console.error(e);
-    btn.disabled = false;
-    document.getElementById('btn-prepare-label').textContent = origLabel;
-  }
-}
-
+function closeModal() { document.getElementById('modal').classList.remove('open'); }
 
 // ============================================================
 // EVENTS
 // ============================================================
-
 document.getElementById('btn-login').addEventListener('click', login);
 document.getElementById('btn-logout').addEventListener('click', logout);
-
-document.getElementById('btn-refresh').addEventListener('click', () => {
-  sheetData = {};
-  loadCurrentMonth();
-});
-
+document.getElementById('btn-refresh').addEventListener('click', ()=>{ sheetData={}; loadMonth(getViewMonthName()); });
 document.getElementById('btn-settings').addEventListener('click', openSettings);
 document.getElementById('btn-save-settings').addEventListener('click', saveSettings);
 document.getElementById('btn-prepare-month').addEventListener('click', prepareNextMonth);
-
-document.getElementById('modal-settings').addEventListener('click', (e) => {
-  if (e.target === document.getElementById('modal-settings')) closeSettings();
-});
-
+document.getElementById('btn-month-prev').addEventListener('click', ()=>changeMonth(-1));
+document.getElementById('btn-month-next').addEventListener('click', ()=>changeMonth(+1));
+document.getElementById('modal-settings').addEventListener('click', e=>{ if(e.target===document.getElementById('modal-settings')) closeSettings(); });
 document.getElementById('btn-submit').addEventListener('click', submitDepense);
+document.getElementById('modal').addEventListener('click', e=>{ if(e.target===document.getElementById('modal')) closeModal(); });
 
-// FABs
-['fab-dashboard', 'fab-tx', 'fab-stats'].forEach(id => {
+['fab-dashboard','fab-tx','fab-stats'].forEach(id=>{
   document.getElementById(id).addEventListener('click', openModal);
 });
 
-// Nav
-document.querySelectorAll('.nav-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+document.querySelectorAll('.nav-btn').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+    document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
     btn.classList.add('active');
-    document.getElementById('screen-' + btn.dataset.screen).classList.add('active');
+    document.getElementById('screen-'+btn.dataset.screen).classList.add('active');
   });
 });
 
-// Compte tabs
-document.querySelectorAll('.compte-tab').forEach(tab => {
-  tab.addEventListener('click', () => {
-    document.querySelectorAll('.compte-tab').forEach(t => t.classList.remove('active'));
+document.querySelectorAll('.compte-tab').forEach(tab=>{
+  tab.addEventListener('click', ()=>{
+    document.querySelectorAll('.compte-tab').forEach(t=>t.classList.remove('active'));
     tab.classList.add('active');
-    currentCompteFilter = tab.dataset.compte;
-
-    const mois = getCurrentMonthName();
+    currentCompteFilter=tab.dataset.compte;
+    const mois=getViewMonthName();
     if (sheetData[mois]) renderTransactions(sheetData[mois]);
   });
 });
 
-// Chips
-document.querySelectorAll('.chips').forEach(group => {
-  group.addEventListener('click', (e) => {
-    const chip = e.target.closest('.chip');
-    if (!chip) return;
-    group.querySelectorAll('.chip').forEach(c => c.classList.remove('selected'));
+document.querySelectorAll('.chips').forEach(group=>{
+  group.addEventListener('click', e=>{
+    const chip=e.target.closest('.chip'); if(!chip) return;
+    group.querySelectorAll('.chip').forEach(c=>c.classList.remove('selected'));
     chip.classList.add('selected');
   });
 });
-
-// AUTO CATEGORIE
-document.getElementById('input-libelle').addEventListener('input', (e) => {
-  const cat = autoCategorie(e.target.value);
-  if (!cat) return;
-
-  document.querySelectorAll('#chips-cat .chip').forEach(chip => {
-    chip.classList.toggle('selected', chip.dataset.val === cat);
-  });
-});
-
-// Fermer modal
-document.getElementById('modal').addEventListener('click', (e) => {
-  if (e.target === document.getElementById('modal')) closeModal();
-});
-
-
 
 // ============================================================
 // INIT

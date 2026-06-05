@@ -12,11 +12,6 @@
   <link rel="apple-touch-icon" href="icon-192.png">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
   <link rel="stylesheet" href="style.css">
-
-<link rel="stylesheet" href="style.css">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
-
 </head>
 <body>
 
@@ -35,27 +30,25 @@
 <div id="app" class="app hidden">
 
   <div class="header">
-    <div>
-      <div class="header-title">Budget 2026</div>
-      <div class="header-sub" id="header-sub">Chargement...</div>
+    <div class="header-nav">
+      <button id="btn-month-prev" class="month-nav-btn"><i class="ti ti-chevron-left"></i></button>
+      <div>
+        <div class="header-title" id="header-month">Juin</div>
+        <div class="header-sub" id="header-sub">Chargement...</div>
+      </div>
+      <button id="btn-month-next" class="month-nav-btn"><i class="ti ti-chevron-right"></i></button>
     </div>
-    <div style="display:flex;gap:12px;align-items:center">
-      <button id="btn-refresh" class="icon-btn" title="Actualiser"><i class="ti ti-refresh"></i></button>
-      <button id="btn-settings" class="icon-btn" title="Paramètres"><i class="ti ti-settings"></i></button>
-      <button id="btn-logout" class="icon-btn" title="Déconnexion"><i class="ti ti-logout"></i></button>
+    <div style="display:flex;gap:10px;align-items:center">
+      <button id="btn-refresh" class="icon-btn"><i class="ti ti-refresh"></i></button>
+      <button id="btn-settings" class="icon-btn"><i class="ti ti-settings"></i></button>
+      <button id="btn-logout" class="icon-btn"><i class="ti ti-logout"></i></button>
     </div>
   </div>
 
   <div class="nav">
-    <button class="nav-btn active" data-screen="dashboard">
-      <i class="ti ti-layout-dashboard"></i>Dashboard
-    </button>
-    <button class="nav-btn" data-screen="transactions">
-      <i class="ti ti-list"></i>Dépenses
-    </button>
-    <button class="nav-btn" data-screen="stats">
-      <i class="ti ti-chart-pie"></i>Stats
-    </button>
+    <button class="nav-btn active" data-screen="dashboard"><i class="ti ti-layout-dashboard"></i>Dashboard</button>
+    <button class="nav-btn" data-screen="transactions"><i class="ti ti-list"></i>Dépenses</button>
+    <button class="nav-btn" data-screen="stats"><i class="ti ti-chart-pie"></i>Stats</button>
   </div>
 
   <!-- DASHBOARD -->
@@ -65,36 +58,21 @@
       <div class="solde-card">
         <div class="solde-account"><i class="ti ti-user"></i> Compte Perso</div>
         <div class="solde-rows">
-          <div class="solde-row">
-            <span class="solde-row-label">Aujourd'hui</span>
-            <span class="solde-row-val" id="perso-today">—</span>
-          </div>
+          <div class="solde-row"><span class="solde-row-label">Aujourd'hui</span><span class="solde-row-val" id="perso-today">—</span></div>
           <div class="divider"></div>
-          <div class="solde-row">
-            <span class="solde-row-label">Fin de mois</span>
-            <span class="solde-row-val" id="perso-eom">—</span>
-          </div>
+          <div class="solde-row"><span class="solde-row-label">Fin de mois</span><span class="solde-row-val" id="perso-eom">—</span></div>
         </div>
       </div>
       <div class="solde-card">
         <div class="solde-account"><i class="ti ti-users"></i> Compte Joint</div>
         <div class="solde-rows">
-          <div class="solde-row">
-            <span class="solde-row-label">Aujourd'hui</span>
-            <span class="solde-row-val" id="joint-today">—</span>
-          </div>
+          <div class="solde-row"><span class="solde-row-label">Aujourd'hui</span><span class="solde-row-val" id="joint-today">—</span></div>
           <div class="divider"></div>
-          <div class="solde-row">
-            <span class="solde-row-label">Fin de mois</span>
-            <span class="solde-row-val" id="joint-eom">—</span>
-          </div>
+          <div class="solde-row"><span class="solde-row-label">Fin de mois</span><span class="solde-row-val" id="joint-eom">—</span></div>
         </div>
       </div>
       <div class="solde-card wide">
-        <div>
-          <div class="epargne-label"><i class="ti ti-piggy-bank"></i> Épargne</div>
-          <div class="epargne-sub">Solde reporté</div>
-        </div>
+        <div><div class="epargne-label"><i class="ti ti-piggy-bank"></i> Épargne</div><div class="epargne-sub">Solde reporté</div></div>
         <div class="epargne-val" id="epargne-val">—</div>
       </div>
     </div>
@@ -116,10 +94,7 @@
     </div>
 
     <div class="section-title">Budget charges variables (joint)</div>
-    <div class="budget-bars" id="budget-bars">
-      <div class="budget-loading">Chargement...</div>
-    </div>
-
+    <div class="budget-bars" id="budget-bars"><div class="budget-loading">Chargement...</div></div>
     <div class="fab"><button class="fab-btn" id="fab-dashboard"><i class="ti ti-plus"></i>Ajouter</button></div>
   </div>
 
@@ -130,31 +105,24 @@
       <div class="compte-tab" data-compte="perso">Perso</div>
       <div class="compte-tab" data-compte="epargne">Épargne</div>
     </div>
-    <div id="tx-list" class="transactions">
-      <div class="budget-loading">Chargement...</div>
-    </div>
+    <div id="tx-list" class="transactions"><div class="budget-loading">Chargement...</div></div>
     <div class="fab"><button class="fab-btn" id="fab-tx"><i class="ti ti-plus"></i>Ajouter</button></div>
   </div>
 
   <!-- STATS -->
   <div id="screen-stats" class="screen">
     <div class="section-title">Dépenses par catégorie</div>
-    <div class="budget-bars" id="stats-bars">
-      <div class="budget-loading">Chargement...</div>
-    </div>
+    <div class="budget-bars" id="stats-bars"><div class="budget-loading">Chargement...</div></div>
     <div class="fab"><button class="fab-btn" id="fab-stats"><i class="ti ti-plus"></i>Ajouter</button></div>
   </div>
-
 </div>
 
-<!-- MODAL AJOUT -->
 <!-- MODAL PARAMÈTRES -->
 <div class="modal-overlay" id="modal-settings">
   <div class="modal">
     <div class="modal-handle"></div>
     <div class="modal-title">⚙️ Paramètres</div>
     <p style="font-size:13px;color:var(--text2);margin-bottom:16px">Budgets mensuels pour les charges variables du compte joint.</p>
-
     <div class="form-group">
       <label class="form-label">🛒 Budget Courses (€)</label>
       <input type="number" id="budget-courses" inputmode="decimal" placeholder="500">
@@ -167,33 +135,21 @@
       <label class="form-label">📦 Budget Autre (€)</label>
       <input type="number" id="budget-autre" inputmode="decimal" placeholder="400">
     </div>
-
-    <button class="submit-btn" id="btn-save-settings">
-      <i class="ti ti-check"></i> Enregistrer les budgets
-    </button>
-
+    <button class="submit-btn" id="btn-save-settings"><i class="ti ti-check"></i> Enregistrer les budgets</button>
     <div style="height:1px;background:var(--border);margin:20px 0"></div>
-
-    <div style="font-size:13px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:10px">📅 Mois suivant</div>
-    <p style="font-size:13px;color:var(--text2);margin-bottom:12px" id="next-month-info">Prépare automatiquement l'onglet du mois suivant dans Google Sheets.</p>
+    <div style="font-size:13px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">📅 Mois suivant</div>
+    <p style="font-size:13px;color:var(--text2);margin-bottom:12px" id="next-month-info"></p>
     <button class="submit-btn" id="btn-prepare-month" style="background:var(--blue)">
-      <i class="ti ti-calendar-plus"></i> <span id="btn-prepare-label">Préparer Juillet 2026</span>
+      <i class="ti ti-calendar-plus"></i> <span id="btn-prepare-label">Préparer</span>
     </button>
   </div>
 </div>
 
+<!-- MODAL AJOUT -->
 <div class="modal-overlay" id="modal">
   <div class="modal">
     <div class="modal-handle"></div>
     <div class="modal-title">Nouvelle opération</div>
-<div style="display:flex;gap:8px;margin-bottom:12px;">
-  <button type="button" onclick="quickAdd('Courses')" class="chip">🛒 Courses</button>
-  <button type="button" onclick="quickAdd('Carburant/transport')" class="chip">⛽ Carburant</button>
-  <button type="button" onclick="quickAdd('Loisir')" class="chip">🍔 Loisir</button>
-</div>
-
-  
-
     <div class="form-group">
       <label class="form-label">Compte</label>
       <div class="chips" id="chips-compte">
@@ -202,7 +158,6 @@
         <div class="chip" data-val="Épargne">Épargne</div>
       </div>
     </div>
-
     <div class="form-group">
       <label class="form-label">Type</label>
       <div class="chips" id="chips-type">
@@ -212,7 +167,6 @@
         <div class="chip" data-val="Dépense">Dépense</div>
       </div>
     </div>
-
     <div class="form-row">
       <div class="form-group">
         <label class="form-label">Montant (€)</label>
@@ -223,13 +177,11 @@
         <input type="date" id="input-date">
       </div>
     </div>
-
     <div class="form-group">
       <label class="form-label">Libellé</label>
       <input type="text" placeholder="Ex: Leclerc Drive" id="input-libelle" autocomplete="off">
     </div>
-
-    <div class="form-group" id="group-categorie">
+    <div class="form-group">
       <label class="form-label">Catégorie</label>
       <div class="chips" id="chips-cat">
         <div class="chip selected" data-val="Courses">Courses</div>
@@ -245,7 +197,6 @@
         <div class="chip" data-val="Autre">Autre</div>
       </div>
     </div>
-
     <div class="form-group">
       <label class="form-label">Mois</label>
       <select id="input-mois">
@@ -255,7 +206,6 @@
         <option>Octobre</option><option>Novembre</option><option>Décembre</option>
       </select>
     </div>
-
     <div id="submit-error" class="submit-error hidden"></div>
     <button class="submit-btn" id="btn-submit">
       <i class="ti ti-check"></i> <span id="btn-submit-label">Enregistrer</span>
@@ -264,7 +214,6 @@
 </div>
 
 <div id="toast" class="toast hidden"></div>
-
 <script src="app.js"></script>
 </body>
 </html>
