@@ -401,14 +401,27 @@ async function renderChart(mois) {
   const year = now.getFullYear();
   const daysInMonth = new Date(year, viewMonth+1, 0).getDate();
 
-  // Calculer dépenses cumulées jour par jour (mois en cours)
+  // Calculer dépenses cumulées jour par jour — charges fixes + variables
+  // Charges fixes : index 9-20 (L22-L33), variables : index 23+ perso / 27+ joint
+  const fixeStart = 9, fixeEnd = 20;
   const depParJour = new Array(daysInMonth).fill(0);
   rows.forEach((row, i) => {
-    if (i < varStart) return;
+    const isFixe = i >= fixeStart && i <= fixeEnd;
+    const isVar = i >= varStart;
+    if (!isFixe && !isVar) return;
     const mnt = parseFloat(row[offset+2])||0;
     const d = parseDate(row[offset]);
     if (!d || mnt <= 0) return;
-    const day = d.getDate();
+    // Dépenses antérieures au mois affiché (ex: 28 mai dans onglet Juin) → placées au jour 1
+    const depMonth = d.getMonth();
+    const depYear = d.getFullYear();
+    const now = new Date();
+    let day;
+    if (depYear < now.getFullYear() || depMonth < viewMonth) {
+      day = 1;
+    } else {
+      day = d.getDate();
+    }
     if (day >= 1 && day <= daysInMonth) depParJour[day-1] += mnt;
   });
   // Cumuler
@@ -429,11 +442,20 @@ async function renderChart(mois) {
     if (compRows) {
       const compDays = new Array(daysInMonth).fill(0);
       compRows.forEach((row, i) => {
-        if (i < varStart) return;
+        const isFixe = i >= fixeStart && i <= fixeEnd;
+        const isVar = i >= varStart;
+        if (!isFixe && !isVar) return;
         const mnt = parseFloat(row[offset+2])||0;
         const d = parseDate(row[offset]);
         if (!d || mnt <= 0) return;
-        const day = d.getDate();
+        const compMonthIdx = MONTHS.indexOf(compMois);
+        const depMonth = d.getMonth();
+        let day;
+        if (depMonth < compMonthIdx) {
+          day = 1;
+        } else {
+          day = d.getDate();
+        }
         if (day >= 1 && day <= daysInMonth) compDays[day-1] += mnt;
       });
       cumulComp = compDays.reduce((acc, v, i) => { acc.push((acc[i-1]||0)+v); return acc; }, []);
