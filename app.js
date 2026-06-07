@@ -585,11 +585,33 @@ async function loadAnnuel() {
       if (!rows) { results.push({ mois, revJoint:0, depJoint:0, revPerso:0, depPerso:0, err:true }); continue; }
 
       let revJoint=0, depJoint=0, revPerso=0, depPerso=0;
+      const today = new Date(); today.setHours(23,59,59,0);
       rows.forEach((row,i) => {
-        const mntJ=parseFloat(row[16])||0, mntP=parseFloat(row[9])||0;
-        if(i>=0&&i<=6){ revJoint+=mntJ; revPerso+=mntP; }
-        else if((i>=9&&i<=21)||i>=27){ depJoint+=mntJ; }
-        else if((i>=9&&i<=20)||i>=23){ depPerso+=mntP; }
+        const mntJ = parseFloat(row[16])||0;
+        const mntP = parseFloat(row[9])||0;
+        const dateJ = parseDate(row[14]);
+        const dateP = parseDate(row[7]);
+        // Revenus : index 0-6 (L13-L19)
+        if (i>=0 && i<=6) {
+          if (mntJ > 0) revJoint += mntJ;
+          if (mntP > 0) revPerso += mntP;
+        }
+        // Charges fixes Joint : index 9-20 (L22-L33) — pas de filtre date (planifiées)
+        else if (i>=9 && i<=20) {
+          if (mntJ > 0) depJoint += mntJ;
+          if (mntP > 0) depPerso += mntP;
+        }
+        // Charges variables Joint : index 27+ (L40+) — avec date réelle uniquement
+        else if (i>=27) {
+          if (mntJ > 0 && dateJ) depJoint += mntJ;
+        }
+        // Charges variables Perso : index 23+ (L36+) — avec date réelle uniquement
+        if (i>=23 && i<27) {
+          if (mntP > 0 && dateP) depPerso += mntP;
+        }
+        if (i>=27) {
+          if (mntP > 0 && dateP) depPerso += mntP;
+        }
       });
       results.push({ mois, revJoint, depJoint, soldeJoint:revJoint-depJoint, revPerso, depPerso, soldePerso:revPerso-depPerso });
     } catch(e) {
