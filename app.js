@@ -178,7 +178,7 @@ async function sheetsGet(range) {
 }
 
 async function sheetsAppend(range, values) {
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=OVERWRITE`;
   const resp = await fetch(url, {
     method:'POST', headers:{ Authorization:'Bearer '+accessToken, 'Content-Type':'application/json' },
     body: JSON.stringify({ values })
@@ -312,8 +312,15 @@ function renderTransactions(rows) {
   const offsets = { joint:14, perso:7, epargne:0 };
   const offset = offsets[currentCompteFilter];
   const container = document.getElementById('tx-list');
+  const today = new Date(); today.setHours(23,59,59,0);
   const items = [];
-  rows.forEach(row => { const r=parseRow(row,offset); if(r.lib&&r.mnt) items.push(r); });
+  rows.forEach(row => {
+    const r = parseRow(row, offset);
+    if (!r.lib || !r.mnt) return;
+    const d = parseDate(r.date);
+    if (!d || d > today) return;
+    items.push(r);
+  });
   if (!items.length) { container.innerHTML='<div class="budget-loading">Aucune opération</div>'; return; }
   items.sort((a,b) => {
     const da=parseDate(a.date), db=parseDate(b.date);
