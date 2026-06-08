@@ -276,10 +276,25 @@ async function loadSoldes(mois) {
   const now = new Date();
   const daysInMonth = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
   const daysLeft = Math.max(1, daysInMonth - now.getDate() + 1);
-  const persoJour = persoEom / daysLeft;
-  const jointJour = jointEom / daysLeft;
-  setVal('perso-jour', persoJour);
-  setVal('joint-jour', jointJour);
+
+  const fmtJour = (val) => {
+    if (isNaN(val) || val === null || val === undefined) return '—';
+    const n = Math.abs(val).toLocaleString('fr-FR', {minimumFractionDigits:0, maximumFractionDigits:2});
+    return (val < 0 ? '−' : '') + n + ' €';
+  };
+
+  const persoJourEl = document.getElementById('perso-jour');
+  const jointJourEl = document.getElementById('joint-jour');
+  if (persoJourEl) {
+    const v = persoEom / daysLeft;
+    persoJourEl.textContent = fmtJour(v);
+    persoJourEl.className = 'solde-row-val ' + (v >= 0 ? 'positive' : 'negative');
+  }
+  if (jointJourEl) {
+    const v = jointEom / daysLeft;
+    jointJourEl.textContent = fmtJour(v);
+    jointJourEl.className = 'solde-row-val ' + (v >= 0 ? 'positive' : 'negative');
+  }
   document.getElementById('epargne-val').textContent = fmt(epargne);
   const total = Math.abs(repY)+Math.abs(repE);
   if (total>0) {
