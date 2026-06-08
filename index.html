@@ -15,6 +15,7 @@
 </head>
 <body>
 
+<!-- AUTH -->
 <div id="auth-screen" class="auth-screen">
   <div class="auth-content">
     <div class="auth-logo">💰</div>
@@ -27,6 +28,7 @@
   </div>
 </div>
 
+<!-- APP -->
 <div id="app" class="app hidden">
 
   <div class="header">
@@ -39,9 +41,9 @@
       <button id="btn-month-next" class="month-nav-btn"><i class="ti ti-chevron-right"></i></button>
     </div>
     <div style="display:flex;gap:10px;align-items:center">
-      <button id="btn-refresh" class="icon-btn"><i class="ti ti-refresh"></i></button>
-      <button id="btn-settings" class="icon-btn"><i class="ti ti-settings"></i></button>
-      <button id="btn-logout" class="icon-btn"><i class="ti ti-logout"></i></button>
+      <button id="btn-refresh" class="icon-btn" title="Actualiser"><i class="ti ti-refresh"></i></button>
+      <button id="btn-settings" class="icon-btn" title="Paramètres"><i class="ti ti-settings"></i></button>
+      <button id="btn-logout" class="icon-btn" title="Déconnexion"><i class="ti ti-logout"></i></button>
     </div>
   </div>
 
@@ -49,6 +51,7 @@
     <button class="nav-btn active" data-screen="dashboard"><i class="ti ti-layout-dashboard"></i>Dashboard</button>
     <button class="nav-btn" data-screen="transactions"><i class="ti ti-list"></i>Dépenses</button>
     <button class="nav-btn" data-screen="stats"><i class="ti ti-chart-pie"></i>Stats</button>
+    <button class="nav-btn" data-screen="annuel"><i class="ti ti-calendar-stats"></i>Annuel</button>
   </div>
 
   <!-- DASHBOARD -->
@@ -77,17 +80,17 @@
       </div>
     </div>
 
-    <div class="section-title">Répartition Yoann / Élodie</div>
+    <div class="section-title">Répartition <span id="label-user1">Yoann</span> / <span id="label-user2">Élodie</span></div>
     <div class="repartition">
       <div class="rep-row">
-        <div class="rep-avatar y">YO</div>
-        <div class="rep-name">Yoann</div>
+        <div class="rep-avatar y" id="avatar-y">YO</div>
+        <div class="rep-name" id="repname-y">Yoann</div>
         <div class="rep-bar-bg"><div class="rep-bar-fill y" id="rep-bar-y" style="width:50%"></div></div>
         <div class="rep-amount" id="rep-y">—</div>
       </div>
       <div class="rep-row">
-        <div class="rep-avatar e">ÉL</div>
-        <div class="rep-name">Élodie</div>
+        <div class="rep-avatar e" id="avatar-e">ÉL</div>
+        <div class="rep-name" id="repname-e">Élodie</div>
         <div class="rep-bar-bg"><div class="rep-bar-fill e" id="rep-bar-e" style="width:50%"></div></div>
         <div class="rep-amount" id="rep-e">—</div>
       </div>
@@ -95,6 +98,17 @@
 
     <div class="section-title">Budget charges variables (joint)</div>
     <div class="budget-bars" id="budget-bars"><div class="budget-loading">Chargement...</div></div>
+
+    <div class="section-title">Dépenses cumulées</div>
+    <div class="chart-card">
+      <div class="chart-tabs" id="chart-tabs">
+        <div class="chart-tab active" data-compte="joint">Joint</div>
+        <div class="chart-tab" data-compte="perso">Perso</div>
+      </div>
+      <div class="chart-wrap"><canvas id="chart-depenses"></canvas></div>
+      <div class="chart-legend" id="chart-legend"></div>
+    </div>
+
     <div class="fab"><button class="fab-btn" id="fab-dashboard"><i class="ti ti-plus"></i>Ajouter</button></div>
   </div>
 
@@ -115,6 +129,14 @@
     <div class="budget-bars" id="stats-bars"><div class="budget-loading">Chargement...</div></div>
     <div class="fab"><button class="fab-btn" id="fab-stats"><i class="ti ti-plus"></i>Ajouter</button></div>
   </div>
+
+  <!-- ANNUEL -->
+  <div id="screen-annuel" class="screen">
+    <div class="section-title">Résumé 2026</div>
+    <div id="annuel-content"><div class="budget-loading">Chargement...</div></div>
+    <div class="fab"><button class="fab-btn" id="fab-annuel"><i class="ti ti-plus"></i>Ajouter</button></div>
+  </div>
+
 </div>
 
 <!-- MODAL PARAMÈTRES -->
@@ -122,7 +144,26 @@
   <div class="modal">
     <div class="modal-handle"></div>
     <div class="modal-title">⚙️ Paramètres</div>
-    <p style="font-size:13px;color:var(--text2);margin-bottom:16px">Budgets mensuels pour les charges variables du compte joint.</p>
+
+    <!-- PROFILS -->
+    <div class="settings-section-title">👤 Profils</div>
+    <div class="form-group">
+      <label class="form-label">Prénom Utilisateur 1</label>
+      <input type="text" id="settings-name1" placeholder="Yoann">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Prénom Utilisateur 2</label>
+      <input type="text" id="settings-name2" placeholder="Élodie">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Email Utilisateur 2 (pour la connexion)</label>
+      <input type="email" id="settings-email2" placeholder="elodie@gmail.com">
+    </div>
+
+    <div style="height:1px;background:var(--border);margin:16px 0"></div>
+
+    <!-- BUDGETS -->
+    <div class="settings-section-title">💰 Budgets mensuels (joint)</div>
     <div class="form-group">
       <label class="form-label">🛒 Budget Courses (€)</label>
       <input type="number" id="budget-courses" inputmode="decimal" placeholder="500">
@@ -135,13 +176,44 @@
       <label class="form-label">📦 Budget Autre (€)</label>
       <input type="number" id="budget-autre" inputmode="decimal" placeholder="400">
     </div>
-    <button class="submit-btn" id="btn-save-settings"><i class="ti ti-check"></i> Enregistrer les budgets</button>
-    <div style="height:1px;background:var(--border);margin:20px 0"></div>
-    <div style="font-size:13px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">📅 Mois suivant</div>
+
+    <div style="height:1px;background:var(--border);margin:16px 0"></div>
+
+    <!-- ALERTES -->
+    <div class="settings-section-title">🔔 Alertes budget</div>
+    <div class="form-group">
+      <label class="form-label">Seuil d'alerte (%)</label>
+      <div class="chips" id="chips-seuil">
+        <div class="chip" data-val="70">70%</div>
+        <div class="chip selected" data-val="80">80%</div>
+        <div class="chip" data-val="90">90%</div>
+        <div class="chip" data-val="100">100%</div>
+      </div>
+    </div>
+
+    <div style="height:1px;background:var(--border);margin:16px 0"></div>
+
+    <!-- COMPARAISON -->
+    <div class="settings-section-title">📊 Comparaison graphique</div>
+    <div class="form-group">
+      <label class="form-label">Comparer avec</label>
+      <div class="chips" id="chips-comparaison">
+        <div class="chip selected" data-val="prev_month">Mois précédent</div>
+        <div class="chip" data-val="prev_year">Même mois an-1</div>
+        <div class="chip" data-val="none">Aucune</div>
+      </div>
+    </div>
+
+    <div style="height:1px;background:var(--border);margin:16px 0"></div>
+
+    <!-- MOIS SUIVANT -->
+    <div class="settings-section-title">📅 Mois suivant</div>
     <p style="font-size:13px;color:var(--text2);margin-bottom:12px" id="next-month-info"></p>
-    <button class="submit-btn" id="btn-prepare-month" style="background:var(--blue)">
+    <button class="submit-btn" id="btn-prepare-month" style="background:var(--blue);margin-bottom:16px">
       <i class="ti ti-calendar-plus"></i> <span id="btn-prepare-label">Préparer</span>
     </button>
+
+    <button class="submit-btn" id="btn-save-settings"><i class="ti ti-check"></i> Enregistrer les paramètres</button>
   </div>
 </div>
 
@@ -214,7 +286,6 @@
 </div>
 
 <div id="toast" class="toast hidden"></div>
-
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="app.js"></script>
 </body>
