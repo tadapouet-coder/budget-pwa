@@ -585,31 +585,33 @@ async function loadAnnuel() {
       if (!rows) { results.push({ mois, revJoint:0, depJoint:0, revPerso:0, depPerso:0, err:true }); continue; }
 
       let revJoint=0, depJoint=0, revPerso=0, depPerso=0;
-      const today = new Date(); today.setHours(23,59,59,0);
       rows.forEach((row,i) => {
         const mntJ = parseFloat(row[16])||0;
         const mntP = parseFloat(row[9])||0;
         const dateJ = parseDate(row[14]);
         const dateP = parseDate(row[7]);
-        // Revenus : index 0-6 (L13-L19)
-        if (i>=0 && i<=6) {
+
+        // Revenus : L14-L19 = index 1-6 (index 0 = Ancien Solde, à exclure)
+        if (i>=1 && i<=6) {
           if (mntJ > 0) revJoint += mntJ;
           if (mntP > 0) revPerso += mntP;
         }
-        // Charges fixes Joint : index 9-20 (L22-L33) — pas de filtre date (planifiées)
-        else if (i>=9 && i<=20) {
+        // Charges fixes Joint : L22-L32 = index 9-19
+        if (i>=9 && i<=19) {
           if (mntJ > 0) depJoint += mntJ;
+        }
+        // Charges fixes Perso : L22-L32 = index 9-19
+        if (i>=9 && i<=19) {
           if (mntP > 0) depPerso += mntP;
         }
-        // Charges variables Joint : index 27+ (L40+) — avec date réelle uniquement
-        else if (i>=27) {
+        // Charges variables Joint : L39+ = index 26+
+        // L36-L38 (index 23-25) = lignes budget restant → exclues
+        if (i>=26) {
           if (mntJ > 0 && dateJ) depJoint += mntJ;
         }
-        // Charges variables Perso : index 23+ (L36+) — avec date réelle uniquement
-        if (i>=23 && i<27) {
-          if (mntP > 0 && dateP) depPerso += mntP;
-        }
-        if (i>=27) {
+        // Charges variables Perso : L36+ = index 23+
+        // (Perso n'a pas de lignes budget restant, tout à partir de 23 est une vraie dépense)
+        if (i>=23) {
           if (mntP > 0 && dateP) depPerso += mntP;
         }
       });
