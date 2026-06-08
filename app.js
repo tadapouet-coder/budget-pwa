@@ -271,6 +271,15 @@ async function loadSoldes(mois) {
   }
   setVal('perso-today', persoToday); setVal('perso-eom', persoEom);
   setVal('joint-today', jointToday); setVal('joint-eom', jointEom);
+
+  // Budget journalier = solde fin de mois ÷ jours restants
+  const now = new Date();
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
+  const daysLeft = Math.max(1, daysInMonth - now.getDate() + 1);
+  const persoJour = persoEom / daysLeft;
+  const jointJour = jointEom / daysLeft;
+  setVal('perso-jour', persoJour);
+  setVal('joint-jour', jointJour);
   document.getElementById('epargne-val').textContent = fmt(epargne);
   const total = Math.abs(repY)+Math.abs(repE);
   if (total>0) {
