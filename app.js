@@ -592,15 +592,15 @@ async function loadAnnuel() {
         const dateJ = parseDate(row[14]);
         const dateP = parseDate(row[7]);
 
-        // L13 = index 0 : Ancien Solde (report mois précédent) → ajouté aux revenus
+        // L13 = index 0 : Ancien Solde (report mois précédent) → toujours inclus
         if (i===0) {
           if (mntJ !== 0) revJoint += mntJ;
           if (mntP !== 0) revPerso += mntP;
         }
-        // Revenus : L14-L19 = index 1-6
+        // Revenus : L14-L19 = index 1-6, filtrés par date ≤ aujourd'hui
         if (i>=1 && i<=6) {
-          if (mntJ > 0) revJoint += mntJ;
-          if (mntP > 0) revPerso += mntP;
+          if (mntJ > 0 && dateJ && dateJ <= today) revJoint += mntJ;
+          if (mntP > 0 && dateP && dateP <= today) revPerso += mntP;
         }
         // Charges fixes : L22-L32 = index 9-19
         // Filtrées par date ≤ aujourd'hui (résumé à l'instant T)
