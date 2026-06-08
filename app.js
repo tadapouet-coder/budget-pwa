@@ -585,34 +585,37 @@ async function loadAnnuel() {
       if (!rows) { results.push({ mois, revJoint:0, depJoint:0, revPerso:0, depPerso:0, err:true }); continue; }
 
       let revJoint=0, depJoint=0, revPerso=0, depPerso=0;
+      const today = new Date(); today.setHours(23,59,59,0);
       rows.forEach((row,i) => {
         const mntJ = parseFloat(row[16])||0;
         const mntP = parseFloat(row[9])||0;
         const dateJ = parseDate(row[14]);
         const dateP = parseDate(row[7]);
 
-        // Revenus : L14-L19 = index 1-6 (index 0 = Ancien Solde, à exclure)
+        // L13 = index 0 : Ancien Solde (report mois précédent) → ajouté aux revenus
+        if (i===0) {
+          if (mntJ !== 0) revJoint += mntJ;
+          if (mntP !== 0) revPerso += mntP;
+        }
+        // Revenus : L14-L19 = index 1-6
         if (i>=1 && i<=6) {
           if (mntJ > 0) revJoint += mntJ;
           if (mntP > 0) revPerso += mntP;
         }
-        // Charges fixes Joint : L22-L32 = index 9-19
+        // Charges fixes : L22-L32 = index 9-19
+        // Filtrées par date ≤ aujourd'hui (résumé à l'instant T)
         if (i>=9 && i<=19) {
-          if (mntJ > 0) depJoint += mntJ;
-        }
-        // Charges fixes Perso : L22-L32 = index 9-19
-        if (i>=9 && i<=19) {
-          if (mntP > 0) depPerso += mntP;
+          if (mntJ > 0 && dateJ && dateJ <= today) depJoint += mntJ;
+          if (mntP > 0 && dateP && dateP <= today) depPerso += mntP;
         }
         // Charges variables Joint : L39+ = index 26+
         // L36-L38 (index 23-25) = lignes budget restant → exclues
         if (i>=26) {
-          if (mntJ > 0 && dateJ) depJoint += mntJ;
+          if (mntJ > 0 && dateJ && dateJ <= today) depJoint += mntJ;
         }
         // Charges variables Perso : L36+ = index 23+
-        // (Perso n'a pas de lignes budget restant, tout à partir de 23 est une vraie dépense)
         if (i>=23) {
-          if (mntP > 0 && dateP) depPerso += mntP;
+          if (mntP > 0 && dateP && dateP <= today) depPerso += mntP;
         }
       });
       results.push({ mois, revJoint, depJoint, soldeJoint:revJoint-depJoint, revPerso, depPerso, soldePerso:revPerso-depPerso });
