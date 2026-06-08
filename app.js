@@ -115,18 +115,28 @@ function login() {
 }
 
 function checkAuth() {
+  alert('DEBUG hash = ' + window.location.hash);
+
   const hash = new URLSearchParams(window.location.hash.substring(1));
   const token = hash.get('access_token');
+
   if (token) {
     accessToken = token;
     history.replaceState(null, '', window.location.pathname);
     localStorage.setItem('gtoken_expiry', Date.now() + 3500 * 1000);
     localStorage.setItem('gtoken', token);
-    showApp(); return;
+    showApp();
+    return;
   }
+
   const stored = localStorage.getItem('gtoken');
   const expiry = parseInt(localStorage.getItem('gtoken_expiry') || '0');
-  if (stored && Date.now() < expiry) { accessToken = stored; showApp(); return; }
+  if (stored && Date.now() < expiry) {
+    accessToken = stored;
+    showApp();
+    return;
+  }
+
   showAuthScreen();
 }
 
