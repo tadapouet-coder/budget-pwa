@@ -5,6 +5,8 @@ const CLIENT_ID = '917136650964-63auvuts9dg4hbtqr2o7pa1171pmmrr2.apps.googleuser
 const SPREADSHEET_ID = '1mGEG698AcF6HZX-FxbqDbpFCaX1PJmFH9I6UzbdQYpk';
 const SCOPES = 'https://www.googleapis.com/auth/spreadsheets';
 const MONTHS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Aout','Septembre','Octobre','Novembre','Décembre'];
+const APP_VERSION = '2026.06.08-v10';
+const DATA_SCHEMA_VERSION = 'budget-sheet-v1';
 
 const ZONES = {
   'Épargne':      { 'Revenu':{col:'A',startRow:13}, 'Dépense':{col:'A',startRow:22} },
@@ -44,9 +46,14 @@ function saveSettings(s) {
 // SERVICE WORKER + NOTIFICATIONS
 // ============================================================
 function registerSW() {
+  console.log('Budget PWA version', APP_VERSION, 'schema', DATA_SCHEMA_VERSION);
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/budget-pwa/sw.js')
-      .then(reg => { console.log('SW registered'); checkNotifPermission(reg); })
+      .then(reg => {
+        console.log('SW registered');
+        reg.update().catch(() => {});
+        checkNotifPermission(reg);
+      })
       .catch(e => console.log('SW error', e));
   }
 }
@@ -718,6 +725,8 @@ async function saveBudgetsToSheet(mois,courses,carburant,autre) {
 }
 
 async function openSettings() {
+  const versionEl = document.getElementById('app-version-value');
+  if (versionEl) versionEl.textContent = APP_VERSION + ' · ' + DATA_SCHEMA_VERSION;
   const s = getSettings();
   document.getElementById('settings-name1').value = s.name1;
   document.getElementById('settings-name2').value = s.name2;
@@ -861,26 +870,22 @@ async function submitDepense() {
 
 // ============================================================
 // HELPERS
+// ============================================================
+
 function getCutoffDateForMonth(monthIndex) {
   const now = new Date();
   const currentMonthIndex = now.getMonth();
   const currentYear = now.getFullYear();
-
-  // Pour le mois courant : on filtre à aujourd'hui.
-  // Pour les mois passés : on prend la fin du mois, afin que le résumé annuel
-  // reste cohérent lorsque l'utilisateur consulte l'année en cours plus tard.
   if (monthIndex === currentMonthIndex) {
     const d = new Date(currentYear, currentMonthIndex, now.getDate());
     d.setHours(23, 59, 59, 999);
     return d;
   }
-
   const endOfMonth = new Date(currentYear, monthIndex + 1, 0);
   endOfMonth.setHours(23, 59, 59, 999);
   return endOfMonth;
 }
 
-// ============================================================
 function fmt(val) {
   if(val===null||val===undefined||isNaN(val)) return '—';
   return (val<0?'−':'')+Math.abs(val).toLocaleString('fr-FR',{minimumFractionDigits:0,maximumFractionDigits:2})+' €';
@@ -888,58 +893,27 @@ function fmt(val) {
 
 function parseDate(d) {
   if (d === null || d === undefined || d === '') return null;
-
-  // Google Sheets API en UNFORMATTED_VALUE renvoie souvent les dates sous forme
-  // de numéro de série (ex : 46172). Base compatible Google Sheets / Excel :
-  // 1899-12-30, avec conversion en heure locale pour éviter les décalages UTC.
   if (typeof d === 'number' && isFinite(d)) {
     const wholeDays = Math.floor(d);
     const fraction = d - wholeDays;
-    const base = new Date(1899, 11, 30); // 30/12/1899
+    const base = new Date(1899, 11, 30);
     base.setDate(base.getDate() + wholeDays);
-    if (fraction) {
-      const ms = Math.round(fraction * 24 * 60 * 60 * 1000);
-      base.setMilliseconds(base.getMilliseconds() + ms);
-    }
+    if (fraction) base.setMilliseconds(base.getMilliseconds() + Math.round(fraction * 24 * 60 * 60 * 1000));
     base.setHours(0, 0, 0, 0);
     return base;
   }
-
   if (typeof d === 'string') {
     const s = d.trim();
     if (!s) return null;
-
-    // Numéro de série reçu sous forme texte (rare, mais possible selon le cache/localStorage)
     if (/^\d+(\.\d+)?$/.test(s)) return parseDate(Number(s));
-
-    // Format français : DD/MM/YYYY
     const fr = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-    if (fr) {
-      const day = parseInt(fr[1], 10);
-      const month = parseInt(fr[2], 10);
-      const year = parseInt(fr[3], 10);
-      return new Date(year, month - 1, day);
-    }
-
-    // Format ISO : YYYY-MM-DD ou YYYY-MM-DDTHH:mm:ss
+    if (fr) return new Date(parseInt(fr[3], 10), parseInt(fr[2], 10) - 1, parseInt(fr[1], 10));
     const iso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
-    if (iso) {
-      return new Date(parseInt(iso[1], 10), parseInt(iso[2], 10) - 1, parseInt(iso[3], 10));
-    }
-
+    if (iso) return new Date(parseInt(iso[1], 10), parseInt(iso[2], 10) - 1, parseInt(iso[3], 10));
     const fallback = new Date(s);
-    if (!isNaN(fallback)) {
-      fallback.setHours(0, 0, 0, 0);
-      return fallback;
-    }
+    if (!isNaN(fallback)) { fallback.setHours(0,0,0,0); return fallback; }
   }
-
-  if (d instanceof Date && !isNaN(d)) {
-    const copy = new Date(d);
-    copy.setHours(0, 0, 0, 0);
-    return copy;
-  }
-
+  if (d instanceof Date && !isNaN(d)) { const copy = new Date(d); copy.setHours(0,0,0,0); return copy; }
   return null;
 }
 
@@ -996,12 +970,34 @@ function openModal(){
 }
 function closeModal(){document.getElementById('modal').classList.remove('open');}
 
+
+async function forceAppUpdate() {
+  try {
+    showToast('Mise à jour en cours...', 1500);
+    if ('serviceWorker' in navigator) {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(registrations.map(reg => reg.unregister()));
+    }
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(key => caches.delete(key)));
+    }
+    Object.keys(localStorage).forEach(key => {
+      if (key.startsWith('cache_rows_') || key.startsWith('cache_soldes_') || key.startsWith('last_alerts')) localStorage.removeItem(key);
+    });
+    window.location.reload();
+  } catch (e) {
+    showToast('❌ Mise à jour impossible : ' + e.message, 4000);
+  }
+}
+
 // ============================================================
 // EVENTS
 // ============================================================
 document.getElementById('btn-login').addEventListener('click',login);
 document.getElementById('btn-logout').addEventListener('click',logout);
 document.getElementById('btn-refresh').addEventListener('click',()=>{sheetData={};loadMonth(getViewMonthName());});
+document.getElementById('btn-force-update')?.addEventListener('click', forceAppUpdate);
 document.getElementById('btn-settings').addEventListener('click',openSettings);
 document.getElementById('btn-save-settings').addEventListener('click',saveSettingsHandler);
 document.getElementById('btn-prepare-month').addEventListener('click',prepareNextMonth);
