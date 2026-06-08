@@ -585,7 +585,7 @@ async function loadAnnuel() {
       if (!rows) { results.push({ mois, revJoint:0, depJoint:0, revPerso:0, depPerso:0, err:true }); continue; }
 
       let revJoint=0, depJoint=0, revPerso=0, depPerso=0;
-      const today = new Date(); today.setHours(23,59,59,0);
+      const today = getCutoffDateForMonth(i);
       rows.forEach((row,i) => {
         const mntJ = parseFloat(row[16])||0;
         const mntP = parseFloat(row[9])||0;
@@ -861,6 +861,25 @@ async function submitDepense() {
 
 // ============================================================
 // HELPERS
+function getCutoffDateForMonth(monthIndex) {
+  const now = new Date();
+  const currentMonthIndex = now.getMonth();
+  const currentYear = now.getFullYear();
+
+  // Pour le mois courant : on filtre à aujourd'hui.
+  // Pour les mois passés : on prend la fin du mois, afin que le résumé annuel
+  // reste cohérent lorsque l'utilisateur consulte l'année en cours plus tard.
+  if (monthIndex === currentMonthIndex) {
+    const d = new Date(currentYear, currentMonthIndex, now.getDate());
+    d.setHours(23, 59, 59, 999);
+    return d;
+  }
+
+  const endOfMonth = new Date(currentYear, monthIndex + 1, 0);
+  endOfMonth.setHours(23, 59, 59, 999);
+  return endOfMonth;
+}
+
 // ============================================================
 function fmt(val) {
   if(val===null||val===undefined||isNaN(val)) return '—';
@@ -868,10 +887,60 @@ function fmt(val) {
 }
 
 function parseDate(d) {
-  if(!d) return null;
-  if(typeof d==='string'&&d.match(/^\d{2}\/\d{2}\/\d{4}$/)){const[day,m,y]=d.split('/');return new Date(parseInt(y),parseInt(m)-1,parseInt(day));}
-  if(typeof d==='string'&&d.match(/^\d{4}-\d{2}-\d{2}/)) return new Date(d);
-  return new Date(d);
+  if (d === null || d === undefined || d === '') return null;
+
+  // Google Sheets API en UNFORMATTED_VALUE renvoie souvent les dates sous forme
+  // de numéro de série (ex : 46172). Base compatible Google Sheets / Excel :
+  // 1899-12-30, avec conversion en heure locale pour éviter les décalages UTC.
+  if (typeof d === 'number' && isFinite(d)) {
+    const wholeDays = Math.floor(d);
+    const fraction = d - wholeDays;
+    const base = new Date(1899, 11, 30); // 30/12/1899
+    base.setDate(base.getDate() + wholeDays);
+    if (fraction) {
+      const ms = Math.round(fraction * 24 * 60 * 60 * 1000);
+      base.setMilliseconds(base.getMilliseconds() + ms);
+    }
+    base.setHours(0, 0, 0, 0);
+    return base;
+  }
+
+  if (typeof d === 'string') {
+    const s = d.trim();
+    if (!s) return null;
+
+    // Numéro de série reçu sous forme texte (rare, mais possible selon le cache/localStorage)
+    if (/^\d+(\.\d+)?$/.test(s)) return parseDate(Number(s));
+
+    // Format français : DD/MM/YYYY
+    const fr = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (fr) {
+      const day = parseInt(fr[1], 10);
+      const month = parseInt(fr[2], 10);
+      const year = parseInt(fr[3], 10);
+      return new Date(year, month - 1, day);
+    }
+
+    // Format ISO : YYYY-MM-DD ou YYYY-MM-DDTHH:mm:ss
+    const iso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (iso) {
+      return new Date(parseInt(iso[1], 10), parseInt(iso[2], 10) - 1, parseInt(iso[3], 10));
+    }
+
+    const fallback = new Date(s);
+    if (!isNaN(fallback)) {
+      fallback.setHours(0, 0, 0, 0);
+      return fallback;
+    }
+  }
+
+  if (d instanceof Date && !isNaN(d)) {
+    const copy = new Date(d);
+    copy.setHours(0, 0, 0, 0);
+    return copy;
+  }
+
+  return null;
 }
 
 function fmtDate(d) {
