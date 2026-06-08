@@ -143,7 +143,10 @@
 <div class="modal-overlay" id="modal-settings">
   <div class="modal">
     <div class="modal-handle"></div>
-    <div class="modal-title">⚙️ Paramètres</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <div class="modal-title" style="margin-bottom:0">⚙️ Paramètres</div>
+      <button onclick="closeSettings()" style="background:none;border:none;font-size:22px;color:var(--text2);cursor:pointer;padding:4px 8px;border-radius:8px">✕</button>
+    </div>
 
     <!-- PROFILS -->
     <div class="settings-section-title">👤 Profils</div>
