@@ -192,21 +192,24 @@ async function sheetsGet(range) {
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(range)}?valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=FORMATTED_STRING`;
   const resp = await fetch(url, { headers: { Authorization: 'Bearer ' + accessToken } });
   if (!resp.ok) {
-    if (resp.status===401 || resp.status===403) { refreshToken(); return null; }
+    if (resp.status===401) { refreshToken(); return null; }
     throw new Error('Erreur lecture: '+resp.status);
   }
   return resp.json();
 }
 
 async function sheetsAppend(range, values) {
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=OVERWRITE`;
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
   const resp = await fetch(url, {
     method:'POST', headers:{ Authorization:'Bearer '+accessToken, 'Content-Type':'application/json' },
     body: JSON.stringify({ values })
   });
   if (!resp.ok) {
-    if (resp.status===401 || resp.status===403) { refreshToken(); return null; }
-    throw new Error('Erreur écriture: '+resp.status);
+    if (resp.status===401) { refreshToken(); return null; }
+    // Lire le détail de l'erreur Google
+    const errBody = await resp.json().catch(()=>({error:{message:'Erreur inconnue'}}));
+    const msg = errBody?.error?.message || ('Erreur ' + resp.status);
+    throw new Error(msg);
   }
   return resp.json();
 }
@@ -901,7 +904,6 @@ async function submitDepense() {
   try {
     const result = await sheetsAppend(`${mois}!${zone.col}${zone.startRow}`,[row]);
     if (!result) {
-      // Token expiré, refreshToken() a été appelé — ne pas afficher succès
       btn.disabled=false;
       document.getElementById('btn-submit-label').textContent='Enregistrer';
       return;
