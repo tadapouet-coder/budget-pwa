@@ -5,7 +5,7 @@ const CLIENT_ID = '917136650964-63auvuts9dg4hbtqr2o7pa1171pmmrr2.apps.googleuser
 const SPREADSHEET_ID = '1mGEG698AcF6HZX-FxbqDbpFCaX1PJmFH9I6UzbdQYpk';
 const SCOPES = 'https://www.googleapis.com/auth/spreadsheets';
 const MONTHS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Aout','Septembre','Octobre','Novembre','Décembre'];
-const APP_VERSION = '2026.06.09-v24.2';
+const APP_VERSION = '2026.06.09-v24.3';
 const DATA_SCHEMA_VERSION = 'budget-sheet-v1';
 
 const ZONES = {
@@ -875,29 +875,49 @@ async function prepareNextMonth() {
     const sP=parseFloat(vrs[1]?.values?.[0]?.[0])||0;
     const sJ=parseFloat(vrs[2]?.values?.[0]?.[0])||0;
 
-    // 3. Lire les charges fixes du nouvel onglet dupliqué, puis décaler leurs dates d'un mois.
-    // Structure v24 : Perso H33:J55, Joint O33:Q55.
-    const fixeResp=await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values:batchGet?ranges=${encodeURIComponent(moisSuivant+'!H33:J55')}&ranges=${encodeURIComponent(moisSuivant+'!O33:Q55')}&valueRenderOption=FORMATTED_VALUE`,{headers:{Authorization:'Bearer '+accessToken}});
-    if(!fixeResp.ok) throw new Error('Erreur lecture charges fixes: '+fixeResp.status);
-    const fixeJson=await fixeResp.json();
-    const nP=(fixeJson.valueRanges?.[0]?.values||[]).map(r=>r?.[0]?[addMonths(r[0],1),r[1]||'',r[2]||'']:r);
-    const nJ=(fixeJson.valueRanges?.[1]?.values||[]).map(r=>r?.[0]?[addMonths(r[0],1),r[1]||'',r[2]||'']:r);
+    // 3. Lire, depuis l'onglet dupliqué, les lignes à conserver en changeant les dates.
+    // - Ancien solde Épargne : A13:C13, date +1 mois, libellé conservé, montant remplacé par le report.
+    // - Revenus Perso : H13:J30, dates +1 mois, libellés/montants conservés, J13 remplacé par le report.
+    // - Revenus Joint : O13:Q30, dates +1 mois, libellés/montants conservés, Q13 remplacé par le report.
+    // - Charges fixes : H33:J55 et O33:Q55, dates +1 mois.
+    const keptResp=await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values:batchGet?ranges=${encodeURIComponent(moisSuivant+'!A13:C13')}&ranges=${encodeURIComponent(moisSuivant+'!H13:J30')}&ranges=${encodeURIComponent(moisSuivant+'!O13:Q30')}&ranges=${encodeURIComponent(moisSuivant+'!H33:J55')}&ranges=${encodeURIComponent(moisSuivant+'!O33:Q55')}&valueRenderOption=FORMATTED_VALUE`,{headers:{Authorization:'Bearer '+accessToken}});
+    if(!keptResp.ok) throw new Error('Erreur lecture lignes conservées: '+keptResp.status);
+    const keptJson=await keptResp.json();
 
-    // 4. Mettre à jour le nom du mois, les reports, et les charges fixes décalées.
+    const oldEpargne = (keptJson.valueRanges?.[0]?.values||[])[0] || [];
+    const epargneReport = [[oldEpargne[0] ? addMonths(oldEpargne[0],1) : '', oldEpargne[1] || 'Ancien Solde', sE]];
+
+    const revenusPerso=(keptJson.valueRanges?.[1]?.values||[]).map((r,idx)=>{
+      const row = r?.[0] ? [addMonths(r[0],1), r[1]||'', r[2]||''] : ['', r?.[1]||'', r?.[2]||''];
+      if (idx === 0) row[2] = sP;
+      return row;
+    });
+
+    const revenusJoint=(keptJson.valueRanges?.[2]?.values||[]).map((r,idx)=>{
+      const row = r?.[0] ? [addMonths(r[0],1), r[1]||'', r[2]||''] : ['', r?.[1]||'', r?.[2]||''];
+      if (idx === 0) row[2] = sJ;
+      return row;
+    });
+
+    const fixesPerso=(keptJson.valueRanges?.[3]?.values||[]).map(r=>r?.[0]?[addMonths(r[0],1),r[1]||'',r[2]||'']:r);
+    const fixesJoint=(keptJson.valueRanges?.[4]?.values||[]).map(r=>r?.[0]?[addMonths(r[0],1),r[1]||'',r[2]||'']:r);
+
+    // 4. Mettre à jour le nom du mois, les reports, les revenus conservés et les charges fixes décalées.
     const updateResp = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values:batchUpdate`,{
       method:'POST',headers:{Authorization:'Bearer '+accessToken,'Content-Type':'application/json'},
       body:JSON.stringify({valueInputOption:'USER_ENTERED',data:[
         {range:`${moisSuivant}!B1`,values:[[moisSuivant]]},
-        {range:`${moisSuivant}!C13`,values:[[sE]]},
-        {range:`${moisSuivant}!J13`,values:[[sP]]},
-        {range:`${moisSuivant}!Q13`,values:[[sJ]]},
-        ...(nP.length?[{range:`${moisSuivant}!H33:J55`,values:nP}]:[]),
-        ...(nJ.length?[{range:`${moisSuivant}!O33:Q55`,values:nJ}]:[]),
+        {range:`${moisSuivant}!A13:C13`,values:epargneReport},
+        ...(revenusPerso.length?[{range:`${moisSuivant}!H13:J30`,values:revenusPerso}]:[]),
+        ...(revenusJoint.length?[{range:`${moisSuivant}!O13:Q30`,values:revenusJoint}]:[]),
+        ...(fixesPerso.length?[{range:`${moisSuivant}!H33:J55`,values:fixesPerso}]:[]),
+        ...(fixesJoint.length?[{range:`${moisSuivant}!O33:Q55`,values:fixesJoint}]:[]),
       ]})
     });
     if(!updateResp.ok) throw new Error('Erreur mise à jour mois suivant: '+updateResp.status);
 
-    // 5. Nettoyer uniquement les zones de saisie mensuelles.
+    // 5. Nettoyer uniquement les zones de saisie mensuelles à ne pas conserver.
+    // Important : ne pas vider H13:K30 et O13:R30, car les revenus récurrents sont conservés.
     // Important : ne pas vider O58:R60, car ce sont les lignes de suivi budget.
     // Important : ne pas vider V4:V6, car ce sont les budgets mensuels paramétrables.
     const clearResp = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values:batchClear`,{
@@ -905,9 +925,7 @@ async function prepareNextMonth() {
       body:JSON.stringify({ranges:[
         `${moisSuivant}!A14:D30`,  // Épargne revenus hors ancien solde
         `${moisSuivant}!A33:D50`,  // Épargne dépenses
-        `${moisSuivant}!H14:K30`,  // Perso revenus hors ancien solde
         `${moisSuivant}!H58:K148`, // Perso charges variables
-        `${moisSuivant}!O14:R30`,  // Joint revenus hors ancien solde
         `${moisSuivant}!O61:R148`  // Joint charges variables réelles
       ]})
     });
