@@ -5,7 +5,7 @@ const CLIENT_ID = '917136650964-63auvuts9dg4hbtqr2o7pa1171pmmrr2.apps.googleuser
 const SPREADSHEET_ID = '1mGEG698AcF6HZX-FxbqDbpFCaX1PJmFH9I6UzbdQYpk';
 const SCOPES = 'https://www.googleapis.com/auth/spreadsheets';
 const MONTHS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Aout','Septembre','Octobre','Novembre','Décembre'];
-const APP_VERSION = '2026.06.09-v24.1';
+const APP_VERSION = '2026.06.09-v24.2';
 const DATA_SCHEMA_VERSION = 'budget-sheet-v1';
 
 const ZONES = {
@@ -847,43 +847,77 @@ function addMonths(dateStr,n) {
   return `${String(dt.getDate()).padStart(2,'0')}/${String(dt.getMonth()+1).padStart(2,'0')}/${dt.getFullYear()}`;
 }
 
+
 async function prepareNextMonth() {
   const moisActuel=getCurrentMonthName(), moisSuivant=getNextMonthName();
   const btn=document.getElementById('btn-prepare-month');
   btn.disabled=true; document.getElementById('btn-prepare-label').textContent='Préparation...';
+
   try {
+    // 1. Récupérer l'onglet du mois actuel et dupliquer l'onglet.
     const metaResp=await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}?fields=sheets.properties`,{headers:{Authorization:'Bearer '+accessToken}});
+    if(!metaResp.ok) throw new Error('Erreur métadonnées: '+metaResp.status);
     const meta=await metaResp.json();
     const cur=meta.sheets.find(s=>s.properties.title===moisActuel);
     if(!cur) throw new Error('Onglet '+moisActuel+' introuvable');
-    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}:batchUpdate`,{
+
+    const duplicateResp = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}:batchUpdate`,{
       method:'POST',headers:{Authorization:'Bearer '+accessToken,'Content-Type':'application/json'},
       body:JSON.stringify({requests:[{duplicateSheet:{sourceSheetId:cur.properties.sheetId,insertSheetIndex:cur.properties.index+1,newSheetName:moisSuivant}}]})
     });
+    if(!duplicateResp.ok) throw new Error('Erreur duplication: '+duplicateResp.status);
+
+    // 2. Récupérer les soldes fin de mois à reporter dans la ligne 13 du nouvel onglet.
     const soldeResp=await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values:batchGet?ranges=${encodeURIComponent(moisActuel+'!C5')}&ranges=${encodeURIComponent(moisActuel+'!I5')}&ranges=${encodeURIComponent(moisActuel+'!P5')}&valueRenderOption=UNFORMATTED_VALUE`,{headers:{Authorization:'Bearer '+accessToken}});
+    if(!soldeResp.ok) throw new Error('Erreur lecture soldes: '+soldeResp.status);
     const soldeJson=await soldeResp.json(); const vrs=soldeJson.valueRanges||[];
     const sE=parseFloat(vrs[0]?.values?.[0]?.[0])||0;
     const sP=parseFloat(vrs[1]?.values?.[0]?.[0])||0;
     const sJ=parseFloat(vrs[2]?.values?.[0]?.[0])||0;
-    const fixeResp=await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values:batchGet?ranges=${encodeURIComponent(moisSuivant+'!H22:J36')}&ranges=${encodeURIComponent(moisSuivant+'!O22:Q33')}&valueRenderOption=FORMATTED_VALUE`,{headers:{Authorization:'Bearer '+accessToken}});
+
+    // 3. Lire les charges fixes du nouvel onglet dupliqué, puis décaler leurs dates d'un mois.
+    // Structure v24 : Perso H33:J55, Joint O33:Q55.
+    const fixeResp=await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values:batchGet?ranges=${encodeURIComponent(moisSuivant+'!H33:J55')}&ranges=${encodeURIComponent(moisSuivant+'!O33:Q55')}&valueRenderOption=FORMATTED_VALUE`,{headers:{Authorization:'Bearer '+accessToken}});
+    if(!fixeResp.ok) throw new Error('Erreur lecture charges fixes: '+fixeResp.status);
     const fixeJson=await fixeResp.json();
     const nP=(fixeJson.valueRanges?.[0]?.values||[]).map(r=>r?.[0]?[addMonths(r[0],1),r[1]||'',r[2]||'']:r);
     const nJ=(fixeJson.valueRanges?.[1]?.values||[]).map(r=>r?.[0]?[addMonths(r[0],1),r[1]||'',r[2]||'']:r);
-    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values:batchUpdate`,{
+
+    // 4. Mettre à jour le nom du mois, les reports, et les charges fixes décalées.
+    const updateResp = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values:batchUpdate`,{
       method:'POST',headers:{Authorization:'Bearer '+accessToken,'Content-Type':'application/json'},
       body:JSON.stringify({valueInputOption:'USER_ENTERED',data:[
         {range:`${moisSuivant}!B1`,values:[[moisSuivant]]},
-        {range:`${moisSuivant}!C13`,values:[[sE]]},{range:`${moisSuivant}!J13`,values:[[sP]]},{range:`${moisSuivant}!Q13`,values:[[sJ]]},
-        {range:`${moisSuivant}!J14:J19`,values:[[''],[''],[''],[''],[''],['`']]},
-        {range:`${moisSuivant}!Q14:Q19`,values:[[''],[''],[''],[''],[''],['`']]},
-        ...(nP.length?[{range:`${moisSuivant}!H22:J36`,values:nP}]:[]),
-        ...(nJ.length?[{range:`${moisSuivant}!O22:Q33`,values:nJ}]:[]),
+        {range:`${moisSuivant}!C13`,values:[[sE]]},
+        {range:`${moisSuivant}!J13`,values:[[sP]]},
+        {range:`${moisSuivant}!Q13`,values:[[sJ]]},
+        ...(nP.length?[{range:`${moisSuivant}!H33:J55`,values:nP}]:[]),
+        ...(nJ.length?[{range:`${moisSuivant}!O33:Q55`,values:nJ}]:[]),
       ]})
     });
-    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values:batchClear`,{
+    if(!updateResp.ok) throw new Error('Erreur mise à jour mois suivant: '+updateResp.status);
+
+    // 5. Nettoyer uniquement les zones de saisie mensuelles.
+    // Important : ne pas vider O58:R60, car ce sont les lignes de suivi budget.
+    // Important : ne pas vider V4:V6, car ce sont les budgets mensuels paramétrables.
+    const clearResp = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values:batchClear`,{
       method:'POST',headers:{Authorization:'Bearer '+accessToken,'Content-Type':'application/json'},
-      body:JSON.stringify({ranges:[`${moisSuivant}!H36:K300`,`${moisSuivant}!O39:R300`]})
+      body:JSON.stringify({ranges:[
+        `${moisSuivant}!A14:D30`,  // Épargne revenus hors ancien solde
+        `${moisSuivant}!A33:D50`,  // Épargne dépenses
+        `${moisSuivant}!H14:K30`,  // Perso revenus hors ancien solde
+        `${moisSuivant}!H58:K148`, // Perso charges variables
+        `${moisSuivant}!O14:R30`,  // Joint revenus hors ancien solde
+        `${moisSuivant}!O61:R148`  // Joint charges variables réelles
+      ]})
     });
+    if(!clearResp.ok) throw new Error('Erreur nettoyage mois suivant: '+clearResp.status);
+
+    // 6. Nettoyer les caches locaux impactés.
+    sheetData = {};
+    localStorage.removeItem('cache_rows_'+moisSuivant);
+    localStorage.removeItem('cache_soldes_'+moisSuivant);
+
     closeSettings(); showToast('✅ Onglet '+moisSuivant+' créé !',3000);
   } catch(e) {
     showToast('❌ '+e.message,4000); btn.disabled=false;
