@@ -992,6 +992,60 @@ function openModal(){
 }
 function closeModal(){document.getElementById('modal').classList.remove('open');}
 
+
+async function clearCacheAndReconnect() {
+  const ok = confirm(
+    "Cette action va vider le cache local, supprimer la session Google actuelle et relancer une connexion propre.\n\nContinuer ?"
+  );
+
+  if (!ok) return;
+
+  try {
+    showToast('🧹 Nettoyage du cache...', 2000);
+
+    // 1. Supprimer uniquement la session Google et les caches techniques.
+    // Les paramètres utilisateur (noms, seuils, comparaison) sont conservés.
+    localStorage.removeItem('gtoken');
+    localStorage.removeItem('gtoken_expiry');
+
+    Object.keys(localStorage).forEach(key => {
+      if (
+        key.indexOf('cache_rows_') === 0 ||
+        key.indexOf('cache_soldes_') === 0 ||
+        key === 'last_alerts'
+      ) {
+        localStorage.removeItem(key);
+      }
+    });
+
+    // 2. Réinitialiser le cache mémoire de l'application.
+    sheetData = {};
+    accessToken = null;
+
+    // 3. Supprimer les caches navigateur/PWA si disponibles.
+    if ('caches' in window) {
+      const cacheNames = await caches.keys();
+      await Promise.all(cacheNames.map(name => caches.delete(name)));
+    }
+
+    // 4. Désinscrire les Service Workers existants.
+    if ('serviceWorker' in navigator) {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(registrations.map(reg => reg.unregister()));
+    }
+
+    // 5. Relancer une connexion Google propre après un court délai.
+    showToast('✅ Cache vidé. Reconnexion...', 1500);
+
+    setTimeout(() => {
+      login();
+    }, 800);
+
+  } catch (e) {
+    showToast('❌ Erreur nettoyage : ' + e.message, 4000);
+  }
+}
+
 // ============================================================
 // EVENTS
 // ============================================================
@@ -1001,6 +1055,7 @@ document.getElementById('btn-refresh').addEventListener('click',()=>{sheetData={
 document.getElementById('btn-settings').addEventListener('click',openSettings);
 document.getElementById('btn-save-settings').addEventListener('click',saveSettingsHandler);
 document.getElementById('btn-prepare-month').addEventListener('click',prepareNextMonth);
+document.getElementById('btn-clear-cache-reconnect').addEventListener('click', clearCacheAndReconnect);
 document.getElementById('btn-month-prev').addEventListener('click',()=>changeMonth(-1));
 document.getElementById('btn-month-next').addEventListener('click',()=>changeMonth(+1));
 
