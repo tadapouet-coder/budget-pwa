@@ -130,6 +130,24 @@ function checkAuth() {
   showAuthScreen();
 }
 
+function refreshToken() {
+  // Renouveler le token silencieusement via un iframe invisible
+  showToast('🔄 Session expirée, reconnexion...', 3000);
+  localStorage.removeItem('gtoken');
+  localStorage.removeItem('gtoken_expiry');
+  // Petit délai pour que le toast soit visible
+  setTimeout(() => {
+    const params = new URLSearchParams({
+      client_id: CLIENT_ID,
+      redirect_uri: window.location.origin + window.location.pathname,
+      response_type: 'token',
+      scope: SCOPES,
+      prompt: 'none' // Reconnexion silencieuse sans écran de login si session Google active
+    });
+    window.location.href = 'https://accounts.google.com/o/oauth2/v2/auth?' + params;
+  }, 1500);
+}
+
 function logout() {
   localStorage.removeItem('gtoken'); localStorage.removeItem('gtoken_expiry');
   accessToken = null;
@@ -173,7 +191,10 @@ function applyProfileNames() {
 async function sheetsGet(range) {
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(range)}?valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=FORMATTED_STRING`;
   const resp = await fetch(url, { headers: { Authorization: 'Bearer ' + accessToken } });
-  if (!resp.ok) { if (resp.status===401) { logout(); return null; } throw new Error('Erreur lecture: '+resp.status); }
+  if (!resp.ok) {
+    if (resp.status===401 || resp.status===403) { refreshToken(); return null; }
+    throw new Error('Erreur lecture: '+resp.status);
+  }
   return resp.json();
 }
 
@@ -183,7 +204,10 @@ async function sheetsAppend(range, values) {
     method:'POST', headers:{ Authorization:'Bearer '+accessToken, 'Content-Type':'application/json' },
     body: JSON.stringify({ values })
   });
-  if (!resp.ok) { if (resp.status===401) { logout(); return null; } throw new Error('Erreur écriture: '+resp.status); }
+  if (!resp.ok) {
+    if (resp.status===401 || resp.status===403) { refreshToken(); return null; }
+    throw new Error('Erreur écriture: '+resp.status);
+  }
   return resp.json();
 }
 
