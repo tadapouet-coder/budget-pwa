@@ -899,7 +899,13 @@ async function submitDepense() {
   const btn=document.getElementById('btn-submit');
   btn.disabled=true; document.getElementById('btn-submit-label').textContent='Enregistrement...';
   try {
-    await sheetsAppend(`${mois}!${zone.col}${zone.startRow}`,[row]);
+    const result = await sheetsAppend(`${mois}!${zone.col}${zone.startRow}`,[row]);
+    if (!result) {
+      // Token expiré, refreshToken() a été appelé — ne pas afficher succès
+      btn.disabled=false;
+      document.getElementById('btn-submit-label').textContent='Enregistrer';
+      return;
+    }
     if(navigator.vibrate) navigator.vibrate(50);
     closeModal(); showToast('✅ Enregistré !');
     sheetData={}; await loadMonth(mois);
