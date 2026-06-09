@@ -5,7 +5,7 @@ const CLIENT_ID = '917136650964-63auvuts9dg4hbtqr2o7pa1171pmmrr2.apps.googleuser
 const SPREADSHEET_ID = '1mGEG698AcF6HZX-FxbqDbpFCaX1PJmFH9I6UzbdQYpk';
 const SCOPES = 'https://www.googleapis.com/auth/spreadsheets';
 const MONTHS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Aout','Septembre','Octobre','Novembre','Décembre'];
-const APP_VERSION = '2026.06.09-v22';
+const APP_VERSION = '2026.06.09-v23';
 const DATA_SCHEMA_VERSION = 'budget-sheet-v1';
 
 const ZONES = {
@@ -13,6 +13,26 @@ const ZONES = {
   'Compte Perso': { 'Revenu':{col:'H',startRow:13}, 'Charge fixe':{col:'H',startRow:22}, 'Charge variable':{col:'H',startRow:36} },
   'Compte Joint': { 'Revenu':{col:'O',startRow:13}, 'Charge fixe':{col:'O',startRow:22}, 'Charge variable':{col:'O',startRow:39} }
 };
+
+const TABLES = {
+  'Épargne': {
+    'Revenu': { startCol:'A', endCol:'D', firstRow:13, lastRow:19 },
+    'Dépense': { startCol:'A', endCol:'D', firstRow:22, lastRow:28 }
+  },
+  'Compte Perso': {
+    'Revenu': { startCol:'H', endCol:'K', firstRow:13, lastRow:19 },
+    'Charge fixe': { startCol:'H', endCol:'K', firstRow:22, lastRow:32 },
+    'Charge variable': { startCol:'H', endCol:'K', firstRow:36, lastRow:72 }
+  },
+  'Compte Joint': {
+    'Revenu': { startCol:'O', endCol:'R', firstRow:13, lastRow:19 },
+    'Charge fixe': { startCol:'O', endCol:'R', firstRow:22, lastRow:32 },
+    // O36:R38 = lignes budget Courses / Essence / Autre.
+    // Les vraies dépenses variables commencent à O39.
+    'Charge variable': { startCol:'O', endCol:'R', firstRow:39, lastRow:126 }
+  }
+};
+
 
 // ============================================================
 // STATE
@@ -199,7 +219,7 @@ async function sheetsGet(range) {
 }
 
 async function sheetsAppend(range, values) {
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=OVERWRITE`;
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
   const resp = await fetch(url, {
     method:'POST', headers:{ Authorization:'Bearer '+accessToken, 'Content-Type':'application/json' },
     body: JSON.stringify({ values })
@@ -209,6 +229,23 @@ async function sheetsAppend(range, values) {
     // Lire le détail de l'erreur Google
     const errBody = await resp.json().catch(()=>({error:{message:'Erreur inconnue'}}));
     const msg = errBody?.error?.message || ('Erreur ' + resp.status);
+    throw new Error(msg);
+  }
+  return resp.json();
+}
+
+
+async function sheetsUpdate(range, values) {
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`;
+  const resp = await fetch(url, {
+    method:'PUT',
+    headers:{ Authorization:'Bearer '+accessToken, 'Content-Type':'application/json' },
+    body: JSON.stringify({ values })
+  });
+  if (!resp.ok) {
+    if (resp.status===401) { refreshToken(); return null; }
+    const errBody = await resp.json().catch(() => ({ error:{ message:'Erreur inconnue' } }));
+    const msg = errBody && errBody.error && errBody.error.message ? errBody.error.message : ('Erreur ' + resp.status);
     throw new Error(msg);
   }
   return resp.json();
@@ -881,6 +918,62 @@ async function prepareNextMonth() {
   }
 }
 
+
+function colToNumber(col) {
+  let n = 0;
+  for (let i = 0; i < col.length; i++) {
+    n = n * 26 + (col.charCodeAt(i) - 64);
+  }
+  return n;
+}
+
+function numberToCol(n) {
+  let col = '';
+  while (n > 0) {
+    const r = (n - 1) % 26;
+    col = String.fromCharCode(65 + r) + col;
+    n = Math.floor((n - 1) / 26);
+  }
+  return col;
+}
+
+function offsetCol(col, offset) {
+  return numberToCol(colToNumber(col) + offset);
+}
+
+function isBlankCell(v) {
+  return v === undefined || v === null || String(v).trim() === '';
+}
+
+async function findFirstEmptyTableRow(mois, compte, type) {
+  const table = TABLES[compte] && TABLES[compte][type];
+  if (!table) {
+    throw new Error(`Tableau introuvable pour ${compte} / ${type}`);
+  }
+
+  const range = `${mois}!${table.startCol}${table.firstRow}:${table.endCol}${table.lastRow}`;
+  const data = await sheetsGet(range);
+  if (!data) return null;
+
+  const rows = data.values || [];
+  const rowCount = table.lastRow - table.firstRow + 1;
+
+  for (let i = 0; i < rowCount; i++) {
+    const row = rows[i] || [];
+    const dateEmpty = isBlankCell(row[0]);
+    const libEmpty = isBlankCell(row[1]);
+    const amountEmpty = isBlankCell(row[2]);
+
+    // La colonne Catégorie peut contenir une validation / liste déroulante,
+    // donc seules Date, Libellé et Montant servent à détecter une ligne libre.
+    if (dateEmpty && libEmpty && amountEmpty) {
+      return table.firstRow + i;
+    }
+  }
+
+  throw new Error(`Aucune ligne vide disponible pour ${compte} / ${type}. Ajoute une ligne préformatée dans Google Sheets ou libère une ligne.`);
+}
+
 // ============================================================
 // AJOUT DÉPENSE
 // ============================================================
@@ -903,7 +996,18 @@ async function submitDepense() {
   const btn=document.getElementById('btn-submit');
   btn.disabled=true; document.getElementById('btn-submit-label').textContent='Enregistrement...';
   try {
-    const result = await sheetsAppend(`${mois}!${zone.col}${zone.startRow}`,[row]);
+    const table = TABLES[compte] && TABLES[compte][type];
+    if (!table) throw new Error(`Tableau introuvable pour ${compte} / ${type}`);
+
+    const targetRow = await findFirstEmptyTableRow(mois, compte, type);
+    if (!targetRow) {
+      btn.disabled=false;
+      document.getElementById('btn-submit-label').textContent='Enregistrer';
+      return;
+    }
+
+    const endCol = offsetCol(table.startCol, row.length - 1);
+    const result = await sheetsUpdate(`${mois}!${table.startCol}${targetRow}:${endCol}${targetRow}`, [row]);
     if (!result) {
       btn.disabled=false;
       document.getElementById('btn-submit-label').textContent='Enregistrer';
