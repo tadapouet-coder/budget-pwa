@@ -5,7 +5,7 @@ const CLIENT_ID = '917136650964-63auvuts9dg4hbtqr2o7pa1171pmmrr2.apps.googleuser
 const SPREADSHEET_ID = '1mGEG698AcF6HZX-FxbqDbpFCaX1PJmFH9I6UzbdQYpk';
 const SCOPES = 'https://www.googleapis.com/auth/spreadsheets';
 const MONTHS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Aout','Septembre','Octobre','Novembre','Décembre'];
-const APP_VERSION = '2026.06.09-v24';
+const APP_VERSION = '2026.06.09-v24.1';
 const DATA_SCHEMA_VERSION = 'budget-sheet-v1';
 
 const ZONES = {
@@ -685,26 +685,21 @@ async function loadAnnuel() {
         const dateJ = parseDate(row[14]);
         const dateP = parseDate(row[7]);
 
-        // Ligne 13 = index 0 : Ancien Solde, toujours inclus.
         if (i===0) {
           if (mntJ !== 0) revJoint += mntJ;
           if (mntP !== 0) revPerso += mntP;
         }
-        // Revenus : lignes 14 à 30 = index 1 à 17, filtrés par date ≤ aujourd'hui.
         if (i>=1 && i<=17) {
           if (mntJ > 0 && dateJ && dateJ <= today) revJoint += mntJ;
           if (mntP > 0 && dateP && dateP <= today) revPerso += mntP;
         }
-        // Charges fixes : lignes 33 à 55 = index 20 à 42.
         if (i>=20 && i<=42) {
           if (mntJ > 0 && dateJ && dateJ <= today) depJoint += mntJ;
           if (mntP > 0 && dateP && dateP <= today) depPerso += mntP;
         }
-        // Charges variables Joint : lignes 61 à 148 = index 48 à 135.
         if (i>=48 && i<=135) {
           if (mntJ > 0 && dateJ && dateJ <= today) depJoint += mntJ;
         }
-        // Charges variables Perso : lignes 58 à 148 = index 45 à 135.
         if (i>=45 && i<=135) {
           if (mntP > 0 && dateP && dateP <= today) depPerso += mntP;
         }
@@ -725,36 +720,16 @@ async function loadAnnuel() {
       <div class="annuel-tab active" onclick="switchAnnuelTab('joint',this)">Compte Joint</div>
       <div class="annuel-tab" onclick="switchAnnuelTab('perso',this)">Compte Perso</div>
     </div>
-    <div id="annuel-joint">
-      <div class="annuel-table">
-        <div class="annuel-header"><span>Mois</span><span>Revenus</span><span>Dépenses</span><span>Solde</span></div>
-        ${results.map(r=>`
-          <div class="annuel-row ${r.err?'annuel-err':''}" onclick="jumpToMonth('${r.mois}')">
-            <span class="annuel-mois">${r.mois.substring(0,3)}</span>
-            <span class="annuel-rev">${r.err?'—':fmt(r.revJoint)}</span>
-            <span class="annuel-dep">${r.err?'—':fmt(r.depJoint)}</span>
-            <span class="annuel-sol ${(r.soldeJoint||0)>=0?'positive':'negative'}">${r.err?'—':fmt(r.soldeJoint)}</span>
-          </div>`).join('')}
-        <div class="annuel-total">
-          <span>Total</span><span>${fmt(totRevJ)}</span><span>${fmt(totDepJ)}</span><span class="${(totRevJ-totDepJ)>=0?'positive':'negative'}">${fmt(totRevJ-totDepJ)}</span>
-        </div>
-      </div>
-    </div>
-    <div id="annuel-perso" style="display:none">
-      <div class="annuel-table">
-        <div class="annuel-header"><span>Mois</span><span>Revenus</span><span>Dépenses</span><span>Solde</span></div>
-        ${results.map(r=>`
-          <div class="annuel-row ${r.err?'annuel-err':''}" onclick="jumpToMonth('${r.mois}')">
-            <span class="annuel-mois">${r.mois.substring(0,3)}</span>
-            <span class="annuel-rev">${r.err?'—':fmt(r.revPerso)}</span>
-            <span class="annuel-dep">${r.err?'—':fmt(r.depPerso)}</span>
-            <span class="annuel-sol ${(r.soldePerso||0)>=0?'positive':'negative'}">${r.err?'—':fmt(r.soldePerso)}</span>
-          </div>`).join('')}
-        <div class="annuel-total">
-          <span>Total</span><span>${fmt(totRevP)}</span><span>${fmt(totDepP)}</span><span class="${(totRevP-totDepP)>=0?'positive':'negative'}">${fmt(totRevP-totDepP)}</span>
-        </div>
-      </div>
-    </div>`;
+    <div id="annuel-joint"><div class="annuel-table">
+      <div class="annuel-header"><span>Mois</span><span>Revenus</span><span>Dépenses</span><span>Solde</span></div>
+      ${results.map(r=>`<div class="annuel-row ${r.err?'annuel-err':''}" onclick="jumpToMonth('${r.mois}')"><span class="annuel-mois">${r.mois.substring(0,3)}</span><span class="annuel-rev">${r.err?'—':fmt(r.revJoint)}</span><span class="annuel-dep">${r.err?'—':fmt(r.depJoint)}</span><span class="annuel-sol ${(r.soldeJoint||0)>=0?'positive':'negative'}">${r.err?'—':fmt(r.soldeJoint)}</span></div>`).join('')}
+      <div class="annuel-total"><span>Total</span><span>${fmt(totRevJ)}</span><span>${fmt(totDepJ)}</span><span class="${(totRevJ-totDepJ)>=0?'positive':'negative'}">${fmt(totRevJ-totDepJ)}</span></div>
+    </div></div>
+    <div id="annuel-perso" style="display:none"><div class="annuel-table">
+      <div class="annuel-header"><span>Mois</span><span>Revenus</span><span>Dépenses</span><span>Solde</span></div>
+      ${results.map(r=>`<div class="annuel-row ${r.err?'annuel-err':''}" onclick="jumpToMonth('${r.mois}')"><span class="annuel-mois">${r.mois.substring(0,3)}</span><span class="annuel-rev">${r.err?'—':fmt(r.revPerso)}</span><span class="annuel-dep">${r.err?'—':fmt(r.depPerso)}</span><span class="annuel-sol ${(r.soldePerso||0)>=0?'positive':'negative'}">${r.err?'—':fmt(r.soldePerso)}</span></div>`).join('')}
+      <div class="annuel-total"><span>Total</span><span>${fmt(totRevP)}</span><span>${fmt(totDepP)}</span><span class="${(totRevP-totDepP)>=0?'positive':'negative'}">${fmt(totRevP-totDepP)}</span></div>
+    </div></div>`;
 }
 
 function switchAnnuelTab(which, el) {
@@ -1070,8 +1045,36 @@ function openModal(){
   document.getElementById('submit-error').classList.add('hidden');
   document.getElementById('input-montant').value='';
   document.getElementById('input-libelle').value='';
+  updateTypeChoicesForCompte();
 }
 function closeModal(){document.getElementById('modal').classList.remove('open');}
+
+
+function updateTypeChoicesForCompte() {
+  const compte = getChipVal('chips-compte');
+  const allowedTypes = {
+    'Compte Joint': ['Charge variable', 'Charge fixe', 'Revenu'],
+    'Compte Perso': ['Charge variable', 'Charge fixe', 'Revenu'],
+    'Épargne': ['Revenu', 'Dépense']
+  };
+
+  const allowed = allowedTypes[compte] || [];
+  const chips = Array.from(document.querySelectorAll('#chips-type .chip'));
+  let selectedStillVisible = false;
+
+  chips.forEach(chip => {
+    const isAllowed = allowed.includes(chip.dataset.val);
+    chip.style.display = isAllowed ? '' : 'none';
+
+    if (!isAllowed) chip.classList.remove('selected');
+    if (isAllowed && chip.classList.contains('selected')) selectedStillVisible = true;
+  });
+
+  if (!selectedStillVisible) {
+    const firstAllowedChip = chips.find(chip => allowed.includes(chip.dataset.val));
+    if (firstAllowedChip) firstAllowedChip.classList.add('selected');
+  }
+}
 
 
 async function clearCacheAndReconnect() {
@@ -1169,6 +1172,10 @@ document.querySelectorAll('.chips').forEach(group=>{
     const chip=e.target.closest('.chip'); if(!chip) return;
     group.querySelectorAll('.chip').forEach(c=>c.classList.remove('selected'));
     chip.classList.add('selected');
+
+    if (group.id === 'chips-compte') {
+      updateTypeChoicesForCompte();
+    }
   });
 });
 
