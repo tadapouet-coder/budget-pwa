@@ -5,6 +5,8 @@ const CLIENT_ID = '917136650964-63auvuts9dg4hbtqr2o7pa1171pmmrr2.apps.googleuser
 const SPREADSHEET_ID = '1mGEG698AcF6HZX-FxbqDbpFCaX1PJmFH9I6UzbdQYpk';
 const SCOPES = 'https://www.googleapis.com/auth/spreadsheets';
 const MONTHS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Aout','Septembre','Octobre','Novembre','Décembre'];
+const APP_VERSION = '2026.06.09-v21';
+const DATA_SCHEMA_VERSION = 'budget-sheet-v1';
 
 const ZONES = {
   'Épargne':      { 'Revenu':{col:'A',startRow:13}, 'Dépense':{col:'A',startRow:22} },
@@ -767,6 +769,7 @@ async function saveBudgetsToSheet(mois,courses,carburant,autre) {
 }
 
 async function openSettings() {
+  updateAppVersionDisplay();
   const s = getSettings();
   document.getElementById('settings-name1').value = s.name1;
   document.getElementById('settings-name2').value = s.name2;
@@ -1003,7 +1006,7 @@ async function clearCacheAndReconnect() {
   try {
     showToast('🧹 Nettoyage du cache...', 2000);
 
-    // 1. Supprimer uniquement la session Google et les caches techniques.
+    // Supprimer uniquement la session Google et les caches techniques.
     // Les paramètres utilisateur (noms, seuils, comparaison) sont conservés.
     localStorage.removeItem('gtoken');
     localStorage.removeItem('gtoken_expiry');
@@ -1018,23 +1021,19 @@ async function clearCacheAndReconnect() {
       }
     });
 
-    // 2. Réinitialiser le cache mémoire de l'application.
     sheetData = {};
     accessToken = null;
 
-    // 3. Supprimer les caches navigateur/PWA si disponibles.
     if ('caches' in window) {
       const cacheNames = await caches.keys();
       await Promise.all(cacheNames.map(name => caches.delete(name)));
     }
 
-    // 4. Désinscrire les Service Workers existants.
     if ('serviceWorker' in navigator) {
       const registrations = await navigator.serviceWorker.getRegistrations();
       await Promise.all(registrations.map(reg => reg.unregister()));
     }
 
-    // 5. Relancer une connexion Google propre après un court délai.
     showToast('✅ Cache vidé. Reconnexion...', 1500);
 
     setTimeout(() => {
@@ -1043,6 +1042,14 @@ async function clearCacheAndReconnect() {
 
   } catch (e) {
     showToast('❌ Erreur nettoyage : ' + e.message, 4000);
+  }
+}
+
+
+function updateAppVersionDisplay() {
+  const versionEl = document.getElementById('app-version-value');
+  if (versionEl) {
+    versionEl.textContent = APP_VERSION + ' · ' + DATA_SCHEMA_VERSION;
   }
 }
 
@@ -1131,4 +1138,5 @@ window.addEventListener('offline',()=>{ showToast('📡 Hors-ligne — données 
 // INIT
 // ============================================================
 registerSW();
+updateAppVersionDisplay();
 checkAuth();
