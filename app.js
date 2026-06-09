@@ -131,18 +131,16 @@ function checkAuth() {
 }
 
 function refreshToken() {
-  // Renouveler le token silencieusement via un iframe invisible
   showToast('🔄 Session expirée, reconnexion...', 3000);
   localStorage.removeItem('gtoken');
   localStorage.removeItem('gtoken_expiry');
-  // Petit délai pour que le toast soit visible
   setTimeout(() => {
     const params = new URLSearchParams({
       client_id: CLIENT_ID,
       redirect_uri: window.location.origin + window.location.pathname,
       response_type: 'token',
       scope: SCOPES,
-      prompt: 'none' // Reconnexion silencieuse sans écran de login si session Google active
+      prompt: 'select_account'
     });
     window.location.href = 'https://accounts.google.com/o/oauth2/v2/auth?' + params;
   }, 1500);
