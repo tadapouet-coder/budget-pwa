@@ -5,7 +5,7 @@ const CLIENT_ID = '917136650964-63auvuts9dg4hbtqr2o7pa1171pmmrr2.apps.googleuser
 const SPREADSHEET_ID = '1mGEG698AcF6HZX-FxbqDbpFCaX1PJmFH9I6UzbdQYpk';
 const SCOPES = 'https://www.googleapis.com/auth/spreadsheets';
 const MONTHS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Aout','Septembre','Octobre','Novembre','Décembre'];
-const APP_VERSION = '2026.06.09-v23';
+const APP_VERSION = '2026.06.09-v24';
 const DATA_SCHEMA_VERSION = 'budget-sheet-v1';
 
 const ZONES = {
@@ -16,20 +16,20 @@ const ZONES = {
 
 const TABLES = {
   'Épargne': {
-    'Revenu': { startCol:'A', endCol:'D', firstRow:13, lastRow:19 },
-    'Dépense': { startCol:'A', endCol:'D', firstRow:22, lastRow:28 }
+    'Revenu': { startCol:'A', endCol:'D', firstRow:13, lastRow:30 },
+    'Dépense': { startCol:'A', endCol:'D', firstRow:33, lastRow:50 }
   },
   'Compte Perso': {
-    'Revenu': { startCol:'H', endCol:'K', firstRow:13, lastRow:19 },
-    'Charge fixe': { startCol:'H', endCol:'K', firstRow:22, lastRow:32 },
-    'Charge variable': { startCol:'H', endCol:'K', firstRow:36, lastRow:72 }
+    'Revenu': { startCol:'H', endCol:'K', firstRow:13, lastRow:30 },
+    'Charge fixe': { startCol:'H', endCol:'K', firstRow:33, lastRow:55 },
+    'Charge variable': { startCol:'H', endCol:'K', firstRow:58, lastRow:148 }
   },
   'Compte Joint': {
-    'Revenu': { startCol:'O', endCol:'R', firstRow:13, lastRow:19 },
-    'Charge fixe': { startCol:'O', endCol:'R', firstRow:22, lastRow:32 },
-    // O36:R38 = lignes budget Courses / Essence / Autre.
-    // Les vraies dépenses variables commencent à O39.
-    'Charge variable': { startCol:'O', endCol:'R', firstRow:39, lastRow:126 }
+    'Revenu': { startCol:'O', endCol:'R', firstRow:13, lastRow:30 },
+    'Charge fixe': { startCol:'O', endCol:'R', firstRow:33, lastRow:55 },
+    // O58:R60 = suivi budget Courses / Carburant / Autre.
+    // Les vraies dépenses variables commencent à O61.
+    'Charge variable': { startCol:'O', endCol:'R', firstRow:61, lastRow:148 }
   }
 };
 
@@ -287,7 +287,7 @@ async function loadMonth(mois) {
     document.getElementById('header-sub').textContent = mois + ' · hors-ligne';
     if (sheetData[mois]) {
       renderTransactions(sheetData[mois]);
-      renderBudgetBars(sheetData[mois]);
+      await renderBudgetBars(sheetData[mois], mois);
       renderStats(sheetData[mois]);
       renderChart(mois);
     }
@@ -301,7 +301,7 @@ async function loadMonth(mois) {
     document.getElementById('header-sub').textContent = navigator.onLine ? 'Erreur' : 'Hors-ligne';
     if (sheetData[mois]) {
       renderTransactions(sheetData[mois]);
-      renderBudgetBars(sheetData[mois]);
+      await renderBudgetBars(sheetData[mois], mois);
     }
     if (navigator.onLine) showToast('❌ ' + e.message);
   }
@@ -378,13 +378,13 @@ function setVal(id, val) {
 }
 
 async function loadTransactions(mois) {
-  const data = await sheetsGet(`${mois}!A13:T120`);
+  const data = await sheetsGet(`${mois}!A13:T160`);
   if (!data || !data.values) return;
   sheetData[mois] = data.values;
   // Cache offline
   try { localStorage.setItem('cache_rows_'+mois, JSON.stringify(data.values)); } catch(e) {}
   renderTransactions(data.values);
-  renderBudgetBars(data.values);
+  await renderBudgetBars(data.values, mois);
   renderStats(data.values);
   renderChart(mois);
 }
@@ -430,14 +430,18 @@ function renderTransactions(rows) {
 // ============================================================
 // BUDGET BARS
 // ============================================================
-function renderBudgetBars(rows) {
+
+async function renderBudgetBars(rows, mois) {
   const container = document.getElementById('budget-bars');
-  if (!rows[23]) { container.innerHTML='<div class="budget-loading">Aucune donnée</div>'; return; }
-  const budgetData = [
-    { label:'Courses',   restant:parseFloat(rows[23]?.[16])||0, total:parseFloat(rows[23]?.[19])||500 },
-    { label:'Carburant', restant:parseFloat(rows[24]?.[16])||0, total:parseFloat(rows[24]?.[19])||240 },
-    { label:'Autre',     restant:parseFloat(rows[25]?.[16])||0, total:parseFloat(rows[25]?.[19])||400 }
+  if (!rows[45]) { container.innerHTML='<div class="budget-loading">Aucune donnée</div>'; return; }
+
+  const budgets = await getBudgetsFromSheet(mois || getViewMonthName());
+  const budgetRows = [
+    { label:'Courses',   restant:parseFloat(rows[45] && rows[45][16])||0, total:budgets.courses },
+    { label:'Carburant', restant:parseFloat(rows[46] && rows[46][16])||0, total:budgets.carburant },
+    { label:'Autre',     restant:parseFloat(rows[47] && rows[47][16])||0, total:budgets.autre }
   ];
+
   const now = new Date();
   const daysInMonth = new Date(now.getFullYear(),now.getMonth()+1,0).getDate();
   const dayOfMonth = now.getDate();
@@ -445,15 +449,14 @@ function renderBudgetBars(rows) {
   const { seuil } = getSettings();
   const isEndOfMonth = dayOfMonth >= daysInMonth-4;
 
-  // Vérifier alertes
-  checkBudgetAlerts(budgetData);
+  checkBudgetAlerts(budgetRows);
 
   container.innerHTML = `
     <div class="budget-header-row">
       <span class="budget-header-label">📅 Avancement du mois</span>
       <span class="budget-header-value">${dayOfMonth} / ${daysInMonth} jours · <b>${pctMois}%</b></span>
     </div>` +
-  budgetData.map(b => {
+  budgetRows.map(b => {
     const depense = b.total - b.restant;
     const pct = b.total>0 ? Math.min(100,Math.round(depense/b.total*100)) : 0;
     const surConso = pct - pctMois;
@@ -471,7 +474,7 @@ function renderBudgetBars(rows) {
       </div>
     </div>`;
   }).join('') +
-  (isEndOfMonth ? `<div class="eom-summary"><i class="ti ti-calendar-check"></i> Fin de mois — Total : <b>${fmt(budgetData.reduce((s,b)=>s+(b.total-b.restant),0))}</b></div>` : '');
+  (isEndOfMonth ? `<div class="eom-summary"><i class="ti ti-calendar-check"></i> Fin de mois — Total : <b>${fmt(budgetRows.reduce((s,b)=>s+(b.total-b.restant),0))}</b></div>` : '');
 }
 
 // ============================================================
@@ -483,7 +486,7 @@ async function renderChart(mois) {
 
   const { comparaison } = getSettings();
   const offset = currentChartCompte==='joint' ? 14 : 7;
-  const varStart = currentChartCompte==='joint' ? 27 : 23;
+  const varStart = currentChartCompte==='joint' ? 48 : 45;
 
   const now = new Date();
   const year = now.getFullYear();
@@ -491,7 +494,7 @@ async function renderChart(mois) {
 
   // Calculer dépenses cumulées jour par jour — charges fixes + variables
   // Charges fixes : index 9-20 (L22-L33), variables : index 23+ perso / 27+ joint
-  const fixeStart = 9, fixeEnd = 20;
+  const fixeStart = 20, fixeEnd = 42;
   const depParJour = new Array(daysInMonth).fill(0);
   rows.forEach((row, i) => {
     const isFixe = i >= fixeStart && i <= fixeEnd;
@@ -626,16 +629,17 @@ async function renderChart(mois) {
 // ============================================================
 // STATS
 // ============================================================
+
 function renderStats(rows) {
   const cats = {};
   rows.forEach((row,i) => {
-    if(i<27) return;
+    if(i < 48 || i > 135) return;
     const mnt=parseFloat(row[16])||0, cat=row[17]||'Autre';
     if(mnt>0&&row[14]) cats[cat]=(cats[cat]||0)+mnt;
   });
   let chargesFixes=0;
   rows.forEach((row,i) => {
-    if(i<9||i>21) return;
+    if(i<20||i>42) return;
     const mnt=parseFloat(row[16])||0; if(mnt>0) chargesFixes+=mnt;
   });
   const container = document.getElementById('stats-bars');
@@ -652,6 +656,7 @@ function renderStats(rows) {
 // ============================================================
 // RÉSUMÉ ANNUEL
 // ============================================================
+
 async function loadAnnuel() {
   const container = document.getElementById('annuel-content');
   container.innerHTML = '<div class="budget-loading">Chargement de l\'année...</div>';
@@ -666,8 +671,8 @@ async function loadAnnuel() {
         const cached = localStorage.getItem('cache_rows_'+mois);
         if (cached) { rows = JSON.parse(cached); sheetData[mois] = rows; }
         else if (navigator.onLine) {
-          const data = await sheetsGet(`${mois}!A13:T120`);
-          if (data?.values) { rows = data.values; sheetData[mois] = rows; localStorage.setItem('cache_rows_'+mois, JSON.stringify(rows)); }
+          const data = await sheetsGet(`${mois}!A13:T160`);
+          if (data && data.values) { rows = data.values; sheetData[mois] = rows; localStorage.setItem('cache_rows_'+mois, JSON.stringify(rows)); }
         }
       }
       if (!rows) { results.push({ mois, revJoint:0, depJoint:0, revPerso:0, depPerso:0, err:true }); continue; }
@@ -680,29 +685,27 @@ async function loadAnnuel() {
         const dateJ = parseDate(row[14]);
         const dateP = parseDate(row[7]);
 
-        // L13 = index 0 : Ancien Solde (report mois précédent) → toujours inclus
+        // Ligne 13 = index 0 : Ancien Solde, toujours inclus.
         if (i===0) {
           if (mntJ !== 0) revJoint += mntJ;
           if (mntP !== 0) revPerso += mntP;
         }
-        // Revenus : L14-L19 = index 1-6, filtrés par date ≤ aujourd'hui
-        if (i>=1 && i<=6) {
+        // Revenus : lignes 14 à 30 = index 1 à 17, filtrés par date ≤ aujourd'hui.
+        if (i>=1 && i<=17) {
           if (mntJ > 0 && dateJ && dateJ <= today) revJoint += mntJ;
           if (mntP > 0 && dateP && dateP <= today) revPerso += mntP;
         }
-        // Charges fixes : L22-L32 = index 9-19
-        // Filtrées par date ≤ aujourd'hui (résumé à l'instant T)
-        if (i>=9 && i<=19) {
+        // Charges fixes : lignes 33 à 55 = index 20 à 42.
+        if (i>=20 && i<=42) {
           if (mntJ > 0 && dateJ && dateJ <= today) depJoint += mntJ;
           if (mntP > 0 && dateP && dateP <= today) depPerso += mntP;
         }
-        // Charges variables Joint : L39+ = index 26+
-        // L36-L38 (index 23-25) = lignes budget restant → exclues
-        if (i>=26) {
+        // Charges variables Joint : lignes 61 à 148 = index 48 à 135.
+        if (i>=48 && i<=135) {
           if (mntJ > 0 && dateJ && dateJ <= today) depJoint += mntJ;
         }
-        // Charges variables Perso : L36+ = index 23+
-        if (i>=23) {
+        // Charges variables Perso : lignes 58 à 148 = index 45 à 135.
+        if (i>=45 && i<=135) {
           if (mntP > 0 && dateP && dateP <= today) depPerso += mntP;
         }
       });
@@ -712,7 +715,6 @@ async function loadAnnuel() {
     }
   }
 
-  // Totaux
   const totRevJ = results.reduce((s,r)=>s+r.revJoint,0);
   const totDepJ = results.reduce((s,r)=>s+r.depJoint,0);
   const totRevP = results.reduce((s,r)=>s+r.revPerso,0);
@@ -734,10 +736,7 @@ async function loadAnnuel() {
             <span class="annuel-sol ${(r.soldeJoint||0)>=0?'positive':'negative'}">${r.err?'—':fmt(r.soldeJoint)}</span>
           </div>`).join('')}
         <div class="annuel-total">
-          <span>Total</span>
-          <span>${fmt(totRevJ)}</span>
-          <span>${fmt(totDepJ)}</span>
-          <span class="${(totRevJ-totDepJ)>=0?'positive':'negative'}">${fmt(totRevJ-totDepJ)}</span>
+          <span>Total</span><span>${fmt(totRevJ)}</span><span>${fmt(totDepJ)}</span><span class="${(totRevJ-totDepJ)>=0?'positive':'negative'}">${fmt(totRevJ-totDepJ)}</span>
         </div>
       </div>
     </div>
@@ -752,10 +751,7 @@ async function loadAnnuel() {
             <span class="annuel-sol ${(r.soldePerso||0)>=0?'positive':'negative'}">${r.err?'—':fmt(r.soldePerso)}</span>
           </div>`).join('')}
         <div class="annuel-total">
-          <span>Total</span>
-          <span>${fmt(totRevP)}</span>
-          <span>${fmt(totDepP)}</span>
-          <span class="${(totRevP-totDepP)>=0?'positive':'negative'}">${fmt(totRevP-totDepP)}</span>
+          <span>Total</span><span>${fmt(totRevP)}</span><span>${fmt(totDepP)}</span><span class="${(totRevP-totDepP)>=0?'positive':'negative'}">${fmt(totRevP-totDepP)}</span>
         </div>
       </div>
     </div>`;
@@ -784,8 +780,9 @@ function jumpToMonth(mois) {
 // ============================================================
 // PARAMÈTRES
 // ============================================================
+
 async function getBudgetsFromSheet(mois) {
-  const cells=[`${mois}!T36`,`${mois}!T37`,`${mois}!T38`];
+  const cells=[`${mois}!V4`,`${mois}!V5`,`${mois}!V6`];
   const params=cells.map(r=>`ranges=${encodeURIComponent(r)}`).join('&');
   try {
     const resp=await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values:batchGet?${params}&valueRenderOption=UNFORMATTED_VALUE`,{headers:{Authorization:'Bearer '+accessToken}});
@@ -795,11 +792,12 @@ async function getBudgetsFromSheet(mois) {
   } catch(e) { return {courses:500,carburant:240,autre:400}; }
 }
 
+
 async function saveBudgetsToSheet(mois,courses,carburant,autre) {
   const resp=await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values:batchUpdate`,{
     method:'POST',headers:{Authorization:'Bearer '+accessToken,'Content-Type':'application/json'},
     body:JSON.stringify({valueInputOption:'RAW',data:[
-      {range:`${mois}!T36`,values:[[courses]]},{range:`${mois}!T37`,values:[[carburant]]},{range:`${mois}!T38`,values:[[autre]]}
+      {range:`${mois}!V4`,values:[[courses]]},{range:`${mois}!V5`,values:[[carburant]]},{range:`${mois}!V6`,values:[[autre]]}
     ]})
   });
   if(!resp.ok) throw new Error('Erreur budgets: '+resp.status);
@@ -921,12 +919,9 @@ async function prepareNextMonth() {
 
 function colToNumber(col) {
   let n = 0;
-  for (let i = 0; i < col.length; i++) {
-    n = n * 26 + (col.charCodeAt(i) - 64);
-  }
+  for (let i = 0; i < col.length; i++) n = n * 26 + (col.charCodeAt(i) - 64);
   return n;
 }
-
 function numberToCol(n) {
   let col = '';
   while (n > 0) {
@@ -936,41 +931,20 @@ function numberToCol(n) {
   }
   return col;
 }
-
-function offsetCol(col, offset) {
-  return numberToCol(colToNumber(col) + offset);
-}
-
-function isBlankCell(v) {
-  return v === undefined || v === null || String(v).trim() === '';
-}
-
+function offsetCol(col, offset) { return numberToCol(colToNumber(col) + offset); }
+function isBlankCell(v) { return v === undefined || v === null || String(v).trim() === ''; }
 async function findFirstEmptyTableRow(mois, compte, type) {
   const table = TABLES[compte] && TABLES[compte][type];
-  if (!table) {
-    throw new Error(`Tableau introuvable pour ${compte} / ${type}`);
-  }
-
+  if (!table) throw new Error(`Tableau introuvable pour ${compte} / ${type}`);
   const range = `${mois}!${table.startCol}${table.firstRow}:${table.endCol}${table.lastRow}`;
   const data = await sheetsGet(range);
   if (!data) return null;
-
   const rows = data.values || [];
   const rowCount = table.lastRow - table.firstRow + 1;
-
   for (let i = 0; i < rowCount; i++) {
     const row = rows[i] || [];
-    const dateEmpty = isBlankCell(row[0]);
-    const libEmpty = isBlankCell(row[1]);
-    const amountEmpty = isBlankCell(row[2]);
-
-    // La colonne Catégorie peut contenir une validation / liste déroulante,
-    // donc seules Date, Libellé et Montant servent à détecter une ligne libre.
-    if (dateEmpty && libEmpty && amountEmpty) {
-      return table.firstRow + i;
-    }
+    if (isBlankCell(row[0]) && isBlankCell(row[1]) && isBlankCell(row[2])) return table.firstRow + i;
   }
-
   throw new Error(`Aucune ligne vide disponible pour ${compte} / ${type}. Ajoute une ligne préformatée dans Google Sheets ou libère une ligne.`);
 }
 
@@ -1101,60 +1075,24 @@ function closeModal(){document.getElementById('modal').classList.remove('open');
 
 
 async function clearCacheAndReconnect() {
-  const ok = confirm(
-    "Cette action va vider le cache local, supprimer la session Google actuelle et relancer une connexion propre.\n\nContinuer ?"
-  );
-
+  const ok = confirm("Cette action va vider le cache local, supprimer la session Google actuelle et relancer une connexion propre.\n\nContinuer ?");
   if (!ok) return;
-
   try {
     showToast('🧹 Nettoyage du cache...', 2000);
-
-    // Supprimer uniquement la session Google et les caches techniques.
-    // Les paramètres utilisateur (noms, seuils, comparaison) sont conservés.
-    localStorage.removeItem('gtoken');
-    localStorage.removeItem('gtoken_expiry');
-
-    Object.keys(localStorage).forEach(key => {
-      if (
-        key.indexOf('cache_rows_') === 0 ||
-        key.indexOf('cache_soldes_') === 0 ||
-        key === 'last_alerts'
-      ) {
-        localStorage.removeItem(key);
-      }
-    });
-
-    sheetData = {};
-    accessToken = null;
-
-    if ('caches' in window) {
-      const cacheNames = await caches.keys();
-      await Promise.all(cacheNames.map(name => caches.delete(name)));
-    }
-
-    if ('serviceWorker' in navigator) {
-      const registrations = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(registrations.map(reg => reg.unregister()));
-    }
-
+    localStorage.removeItem('gtoken'); localStorage.removeItem('gtoken_expiry');
+    Object.keys(localStorage).forEach(key => { if (key.indexOf('cache_rows_') === 0 || key.indexOf('cache_soldes_') === 0 || key === 'last_alerts') localStorage.removeItem(key); });
+    sheetData = {}; accessToken = null;
+    if ('caches' in window) { const cacheNames = await caches.keys(); await Promise.all(cacheNames.map(name => caches.delete(name))); }
+    if ('serviceWorker' in navigator) { const registrations = await navigator.serviceWorker.getRegistrations(); await Promise.all(registrations.map(reg => reg.unregister())); }
     showToast('✅ Cache vidé. Reconnexion...', 1500);
-
-    setTimeout(() => {
-      login();
-    }, 800);
-
-  } catch (e) {
-    showToast('❌ Erreur nettoyage : ' + e.message, 4000);
-  }
+    setTimeout(() => { login(); }, 800);
+  } catch (e) { showToast('❌ Erreur nettoyage : ' + e.message, 4000); }
 }
 
 
 function updateAppVersionDisplay() {
   const versionEl = document.getElementById('app-version-value');
-  if (versionEl) {
-    versionEl.textContent = APP_VERSION + ' · ' + DATA_SCHEMA_VERSION;
-  }
+  if (versionEl) versionEl.textContent = APP_VERSION + ' · ' + DATA_SCHEMA_VERSION;
 }
 
 // ============================================================
