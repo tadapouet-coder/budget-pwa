@@ -297,22 +297,23 @@ async function changeMonth(delta) {
 
   const n = viewMonth + delta;
 
-  // Limite calendrier (janvier → décembre)
+  // limite calendrier
   if (n < 0 || n > 11) return;
 
   const targetMonth = MONTHS[n];
 
-  // ✅ Vérifier si l’onglet existe
+  // ✅ CHECK AVANT TOUT
   const exists = await sheetExists(targetMonth);
 
   if (!exists) {
-    showToast(`❌ Le mois ${targetMonth} n'existe pas encore`);
-    return;
+    showToast(`❌ ${targetMonth} n'est pas encore créé`);
+    return; // ⛔ STOP → aucune modification
   }
 
-  // ✅ sinon navigation normale
+  // ✅ seulement si OK
   viewMonth = n;
-  updateMonthNav();
+
+  await updateMonthNav();   // important : await
   await loadMonth(targetMonth);
 }
 
@@ -321,6 +322,7 @@ async function changeMonth(delta) {
 // CHARGEMENT
 // ============================================================
 async function loadMonth(mois) {
+  if (!mois) return;
   document.getElementById('header-sub').textContent = mois + ' · chargement...';
   // Indicateur offline
   if (!navigator.onLine) {
