@@ -1066,6 +1066,31 @@ async function submitDepense() {
 // ============================================================
 // HELPERS
 // ============================================================
+// ============================================================
+// AUTO CATEGORIE (SAFE)
+// ============================================================
+
+function autoCategorieSmart(libelle) {
+  if (!libelle) return null;
+
+  const l = libelle.trim().toLowerCase();
+
+  if (l.includes("leclerc") || l.includes("carrefour") || l.includes("intermarch"))
+    return "Courses";
+
+  if (l.includes("total") || l.includes("essence") || l.includes("station"))
+    return "Carburant/transport";
+
+  if (l.includes("pharmacie") || l.includes("médecin"))
+    return "Santé";
+
+  if (l.includes("restaurant") || l.includes("ciné") || l.includes("netflix"))
+    return "Loisir";
+
+  return null; // important → ne force pas
+}
+
+
 function fmt(val) {
   if(val===null||val===undefined||isNaN(val)) return '—';
   return (val<0?'−':'')+Math.abs(val).toLocaleString('fr-FR',{minimumFractionDigits:0,maximumFractionDigits:2})+' €';
@@ -1273,6 +1298,25 @@ document.querySelectorAll('.chips').forEach(group=>{
   });
 });
 
+// ============================================================
+// AUTO CATEGORIE TRIGGER (SAFE)
+// ============================================================
+
+const inputLib = document.getElementById('input-libelle');
+
+if (inputLib) {
+  inputLib.addEventListener('input', (e) => {
+
+    const cat = autoCategorieSmart(e.target.value);
+
+    if (!cat) return; // si inconnu → ne rien faire
+
+    document.querySelectorAll('#chips-cat .chip').forEach(chip => {
+      chip.classList.toggle('selected', chip.dataset.val === cat);
+    });
+
+  });
+}
 // Détection offline/online
 window.addEventListener('online',()=>{ showToast('✅ Connexion rétablie'); sheetData={}; loadMonth(getViewMonthName()); });
 window.addEventListener('offline',()=>{ showToast('📡 Hors-ligne — données en cache',3000); });
