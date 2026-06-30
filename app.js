@@ -261,26 +261,61 @@ function getPrevMonthName() { return MONTHS[(viewMonth - 1 + 12) % 12]; }
 function getPrevYearMonthName() { return MONTHS[viewMonth]; } // même mois, an-1
 
 
-function updateMonthNav() {
+
+async function updateMonthNav() {
+
   const name = getViewMonthName();
-
   document.getElementById('header-month').textContent = name;
-
-  // Toujours actif
-  document.getElementById('btn-month-next').style.opacity = '1';
-  document.getElementById('btn-month-next').style.pointerEvents = 'auto';
-
   document.getElementById('input-mois').value = name;
+
+  // ✅ Gestion mois suivant intelligente
+  const nextMonth = MONTHS[viewMonth + 1];
+
+  if (nextMonth) {
+
+    const exists = await sheetExists(nextMonth);
+
+    const btnNext = document.getElementById('btn-month-next');
+
+    btnNext.style.opacity = exists ? '1' : '0.3';
+    btnNext.style.pointerEvents = exists ? 'auto' : 'none';
+
+  } else {
+
+    // cas décembre (pas de mois après)
+    const btnNext = document.getElementById('btn-month-next');
+
+    btnNext.style.opacity = '0.3';
+    btnNext.style.pointerEvents = 'none';
+  }
 }
+
+
 
 
 async function changeMonth(delta) {
+
   const n = viewMonth + delta;
+
+  // Limite calendrier (janvier → décembre)
   if (n < 0 || n > 11) return;
+
+  const targetMonth = MONTHS[n];
+
+  // ✅ Vérifier si l’onglet existe
+  const exists = await sheetExists(targetMonth);
+
+  if (!exists) {
+    showToast(`❌ Le mois ${targetMonth} n'existe pas encore`);
+    return;
+  }
+
+  // ✅ sinon navigation normale
   viewMonth = n;
   updateMonthNav();
-  await loadMonth(getViewMonthName());
+  await loadMonth(targetMonth);
 }
+
 
 // ============================================================
 // CHARGEMENT
