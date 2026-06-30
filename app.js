@@ -260,18 +260,23 @@ function getNextMonthName() { return MONTHS[(new Date().getMonth()+1)%12]; }
 function getPrevMonthName() { return MONTHS[(viewMonth - 1 + 12) % 12]; }
 function getPrevYearMonthName() { return MONTHS[viewMonth]; } // même mois, an-1
 
+
 function updateMonthNav() {
   const name = getViewMonthName();
-  const isNow = viewMonth === new Date().getMonth();
+
   document.getElementById('header-month').textContent = name;
-  document.getElementById('btn-month-next').style.opacity = isNow ? '0.3' : '1';
-  document.getElementById('btn-month-next').style.pointerEvents = isNow ? 'none' : 'auto';
+
+  // Toujours actif
+  document.getElementById('btn-month-next').style.opacity = '1';
+  document.getElementById('btn-month-next').style.pointerEvents = 'auto';
+
   document.getElementById('input-mois').value = name;
 }
 
+
 async function changeMonth(delta) {
   const n = viewMonth + delta;
-  if (n < 0 || n > new Date().getMonth()) return;
+  if (n < 0 || n > 11) return;
   viewMonth = n;
   updateMonthNav();
   await loadMonth(getViewMonthName());
