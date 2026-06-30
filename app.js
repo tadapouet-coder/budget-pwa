@@ -1025,7 +1025,16 @@ async function submitDepense() {
   const montant=parseFloat(document.getElementById('input-montant').value);
   const libelle=document.getElementById('input-libelle').value.trim();
   const date=document.getElementById('input-date').value;
-  const categorie=getChipVal('chips-cat');
+  
+let categorie = getChipVal('chips-cat');
+
+// ✅ sécurité : recalcul au moment du submit
+const autoCat = autoCategorieSmart(libelle);
+
+if (autoCat) {
+  categorie = autoCat;
+}
+
   const mois=document.getElementById('input-mois').value;
   const errEl=document.getElementById('submit-error');
   if(!montant||isNaN(montant)){errEl.textContent='Montant invalide';errEl.classList.remove('hidden');return;}
