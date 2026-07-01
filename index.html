@@ -78,7 +78,7 @@
           <div class="solde-row"><span class="solde-row-label">💸 /jour</span><span class="solde-row-val" id="joint-jour">—</span></div>
         </div>
       </div>
-      <div class="solde-card wide">
+      <div id="epargne-card" class="solde-card wide">
         <div><div class="epargne-label"><i class="ti ti-piggy-bank"></i> Épargne</div><div class="epargne-sub">Solde reporté</div></div>
         <div class="epargne-val" id="epargne-val">—</div>
       </div>
@@ -117,15 +117,27 @@
   </div>
 
   <!-- TRANSACTIONS -->
-  <div id="screen-transactions" class="screen">
-    <div class="compte-tabs">
-      <div class="compte-tab active" data-compte="joint">Compte Joint</div>
-      <div class="compte-tab" data-compte="perso">Perso</div>
-      <div class="compte-tab" data-compte="epargne">Épargne</div>
-    </div>
-    <div id="tx-list" class="transactions"><div class="budget-loading">Chargement...</div></div>
-    <div class="fab"><button class="fab-btn" id="fab-tx"><i class="ti ti-plus"></i>Ajouter</button></div>
+<div id="screen-transactions" class="screen">
+
+  <div class="compte-tabs">
+    <div class="compte-tab" data-compte="Compte Perso Elodie">Perso Elodie</div>
+    <div class="compte-tab active" data-compte="Compte Joint">Compte Joint</div>
+    <div class="compte-tab" data-compte="Compte Perso">Perso</div>
+    <div class="compte-tab" data-compte="Épargne">Épargne</div>
   </div>
+
+  <div id="tx-list" class="transactions">
+    <div class="budget-loading">Chargement...</div>
+  </div>
+
+  <div class="fab">
+    <button class="fab-btn" id="fab-tx">
+      <i class="ti ti-plus"></i>Ajouter
+    </button>
+  </div>
+
+</div>
+
 
   <!-- STATS -->
   <div id="screen-stats" class="screen">
@@ -251,6 +263,7 @@
         <div class="chip selected" data-val="Compte Joint">Compte Joint</div>
         <div class="chip" data-val="Compte Perso">Compte Perso</div>
         <div class="chip" data-val="Épargne">Épargne</div>
+        <div class="chip" data-val="Compte Perso Elodie">Perso Elodie</div>
       </div>
     </div>
     <div class="form-group">

@@ -2,19 +2,34 @@
 // CONFIG
 // ============================================================
 const CLIENT_ID = '917136650964-63auvuts9dg4hbtqr2o7pa1171pmmrr2.apps.googleusercontent.com';
-const SPREADSHEET_ID = '1mGEG698AcF6HZX-FxbqDbpFCaX1PJmFH9I6UzbdQYpk';
+const SPREADSHEET_ID = '1OnFInZoJLwB1PYkzUFiEMnONpgzwXRl7ysf6n3Eue-Q';
 const SCOPES = 'https://www.googleapis.com/auth/spreadsheets';
 const MONTHS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Aout','Septembre','Octobre','Novembre','Décembre'];
 const APP_VERSION = '2026.06.09-v24.3';
 const DATA_SCHEMA_VERSION = 'budget-sheet-v1';
+let USER_MODE = 'ELODIE';
+// mettre 'ELODIE' dans la version pour elle
 
 const ZONES = {
   'Épargne':      { 'Revenu':{col:'A',startRow:13}, 'Dépense':{col:'A',startRow:22} },
   'Compte Perso': { 'Revenu':{col:'H',startRow:13}, 'Charge fixe':{col:'H',startRow:22}, 'Charge variable':{col:'H',startRow:36} },
-  'Compte Joint': { 'Revenu':{col:'O',startRow:13}, 'Charge fixe':{col:'O',startRow:22}, 'Charge variable':{col:'O',startRow:39} }
+  'Compte Joint': { 'Revenu':{col:'O',startRow:13}, 'Charge fixe':{col:'O',startRow:22}, 'Charge variable':{col:'O',startRow:39} },
+
+  'Compte Perso Elodie': {
+    'Revenu': { col:'X', startRow:13 },
+    'Charge fixe': { col:'X', startRow:22 },
+    'Charge variable': { col:'X', startRow:36 }
+  }
 };
 
 const TABLES = {
+
+'Compte Perso Elodie': {
+  'Revenu': { startCol:'X', endCol:'AA', firstRow:13, lastRow:30 },
+  'Charge fixe': { startCol:'X', endCol:'AA', firstRow:33, lastRow:55 },
+  'Charge variable': { startCol:'X', endCol:'AA', firstRow:58, lastRow:148 }
+},
+
   'Épargne': {
     'Revenu': { startCol:'A', endCol:'D', firstRow:13, lastRow:30 },
     'Dépense': { startCol:'A', endCol:'D', firstRow:33, lastRow:50 }
@@ -38,8 +53,8 @@ const TABLES = {
 // STATE
 // ============================================================
 let accessToken = null;
-let currentCompteFilter = 'joint';
-let currentChartCompte = 'joint';
+let currentCompteFilter = 'Compte Joint';
+let currentChartCompte = 'Compte Joint';
 let sheetData = {};
 let viewMonth = new Date().getMonth();
 let chartInstance = null;
@@ -141,6 +156,7 @@ function checkAuth() {
   const token = hash.get('access_token');
   if (token) {
     accessToken = token;
+    fetchUserEmail(accessToken);
     history.replaceState(null, '', window.location.pathname);
     localStorage.setItem('gtoken_expiry', Date.now() + 3500 * 1000);
     localStorage.setItem('gtoken', token);
@@ -187,6 +203,7 @@ function showApp() {
   viewMonth = new Date().getMonth();
   updateMonthNav();
   loadMonth(MONTHS[viewMonth]);
+  applyUserTabs();
 }
 
 // ============================================================
@@ -204,6 +221,48 @@ function applyProfileNames() {
   // Titre répartition
   document.querySelector('.section-title #label-user1') && (document.querySelector('.section-title #label-user1').textContent = name1);
 }
+
+async function fetchUserEmail(token) {
+  try {
+    const resp = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+      headers: { Authorization: 'Bearer ' + token }
+    });
+
+    const data = await resp.json();
+
+    localStorage.setItem('user_email', data.email);
+
+    applyUserModeAuto(data.email);
+
+  } catch (e) {
+    console.error('Erreur récupération email', e);
+  }
+}
+
+// ⚠️ MODE DEBUG ACTIF → penser à enlever avant prod
+function applyUserModeAuto(email) {
+
+  // 🔥 FORÇAGE MODE ÉLODIE (TEST)
+  USER_MODE = 'ELODIE';
+
+  // ✅ filtre cohérent
+  currentCompteFilter = 'Compte Joint';
+
+  // ✅ appliquer les tabs
+  applyUserTabs();
+  setTimeout(() => {
+  applyUserTabs();
+}, 0);
+
+  // ✅ 🔥 REFRESH UI COMPLET
+  const mois = getViewMonthName();
+  if (sheetData[mois]) {
+    renderTransactions(sheetData[mois]);
+    renderStats(sheetData[mois]);
+    renderChart(mois);
+  }
+}
+
 
 // ============================================================
 // API SHEETS
@@ -350,10 +409,24 @@ async function loadMonth(mois) {
 }
 
 async function loadSoldes(mois) {
-  const cells = [mois+'!I5',mois+'!I6',mois+'!P5',mois+'!P6',mois+'!C5',mois+'!S5',mois+'!S6'];
+  
+const cells = [
+  mois+'!I5', mois+'!I6',    // TOI
+  mois+'!P5', mois+'!P6',    // JOINT
+  mois+'!C5',
+  mois+'!S5', mois+'!S6',
+
+  mois+'!Y5', mois+'!Y6'     // ✅ ELODIE
+];
+
   const params = cells.map(r=>'ranges='+encodeURIComponent(r)).join('&');
   const url = 'https://sheets.googleapis.com/v4/spreadsheets/'+SPREADSHEET_ID+'/values:batchGet?'+params+'&valueRenderOption=FORMATTED_VALUE';
-  let persoEom=0,persoToday=0,jointEom=0,jointToday=0,epargne=0,repY=0,repE=0;
+  
+let persoEom=0,persoToday=0,
+    jointEom=0,jointToday=0,
+    epargne=0,repY=0,repE=0,
+    elodieEom=0, elodieToday=0;
+
   try {
     const resp = await fetch(url, { headers:{ Authorization:'Bearer '+accessToken } });
     if (!resp.ok) throw new Error('Erreur: '+resp.status);
@@ -367,16 +440,30 @@ async function loadSoldes(mois) {
     persoEom=pf(vrs[0]); persoToday=pf(vrs[1]);
     jointEom=pf(vrs[2]); jointToday=pf(vrs[3]);
     epargne=pf(vrs[4]); repY=pf(vrs[5]); repE=pf(vrs[6]);
+    elodieEom = pf(vrs[7]);
+    elodieToday = pf(vrs[8]);
+
     // Cacher en localStorage pour le mode offline
-    localStorage.setItem('cache_soldes_'+mois, JSON.stringify({persoEom,persoToday,jointEom,jointToday,epargne,repY,repE}));
+    localStorage.setItem('cache_soldes_'+mois, JSON.stringify({persoEom,persoToday,jointEom,jointToday,epargne,repY,repE,elodieEom,elodieToday}));
   } catch(e) {
     // Fallback cache
     const cached = localStorage.getItem('cache_soldes_'+mois);
     if (cached) { const c=JSON.parse(cached); ({persoEom,persoToday,jointEom,jointToday,epargne,repY,repE}=c); }
     else { showToast('Erreur soldes: '+e.message); return; }
   }
-  setVal('perso-today', persoToday); setVal('perso-eom', persoEom);
+  
+if (USER_MODE === 'ELODIE') {
+  setVal('perso-today', elodieToday);
+  setVal('perso-eom', elodieEom);
+} else {
+  setVal('perso-today', persoToday);
+  setVal('perso-eom', persoEom);
+}
+
   setVal('joint-today', jointToday); setVal('joint-eom', jointEom);
+
+
+
 
   // Budget journalier = solde fin de mois ÷ jours restants
   const now = new Date();
@@ -391,8 +478,11 @@ async function loadSoldes(mois) {
 
   const persoJourEl = document.getElementById('perso-jour');
   const jointJourEl = document.getElementById('joint-jour');
-  if (persoJourEl) {
-    const v = persoEom / daysLeft;
+  
+if (persoJourEl) {
+  const base = USER_MODE === 'ELODIE' ? elodieEom : persoEom;
+  const v = base / daysLeft;
+
     persoJourEl.textContent = fmtJour(v);
     persoJourEl.className = 'solde-row-val ' + (v >= 0 ? 'positive' : 'negative');
   }
@@ -402,6 +492,14 @@ async function loadSoldes(mois) {
     jointJourEl.className = 'solde-row-val ' + (v >= 0 ? 'positive' : 'negative');
   }
   document.getElementById('epargne-val').textContent = fmt(epargne);
+  const epargneCard = document.getElementById('epargne-card');
+
+if (USER_MODE === 'ELODIE') {
+  if (epargneCard) epargneCard.style.display = 'none';
+} else {
+  if (epargneCard) epargneCard.style.display = '';
+}
+
   const total = Math.abs(repY)+Math.abs(repE);
   if (total>0) {
     const pctY = Math.round(Math.abs(repY)/total*100);
@@ -420,7 +518,7 @@ function setVal(id, val) {
 }
 
 async function loadTransactions(mois) {
-  const data = await sheetsGet(`${mois}!A13:T160`);
+  const data = await sheetsGet(`${mois}!A13:AA160`);
   if (!data || !data.values) return;
   sheetData[mois] = data.values;
   // Cache offline
@@ -439,8 +537,27 @@ function parseRow(row, offset) {
 }
 
 function renderTransactions(rows) {
-  const offsets = { joint:14, perso:7, epargne:0 };
-  const offset = offsets[currentCompteFilter];
+  
+// 🔐 blocage données pour Elodie
+if (USER_MODE === 'ELODIE' && currentCompteFilter === 'Compte Perso') {
+  document.getElementById('tx-list').innerHTML = '<div class="budget-loading">Non autorisé</div>';
+  return;
+}
+
+if (USER_MODE === 'ELODIE' && currentCompteFilter === 'Épargne') {
+  document.getElementById('tx-list').innerHTML = '<div class="budget-loading">Non autorisé</div>';
+  return;
+}
+
+const offsets = {
+  'Compte Joint':14,
+  'Compte Perso':7,
+  'Épargne':0,
+  'Compte Perso Elodie':23
+};
+
+const offset = offsets[currentCompteFilter] ?? offsets['Compte Joint'];
+
   const container = document.getElementById('tx-list');
   const today = new Date(); today.setHours(23,59,59,0);
   const items = [];
@@ -527,8 +644,8 @@ async function renderChart(mois) {
   if (!rows) return;
 
   const { comparaison } = getSettings();
-  const offset = currentChartCompte==='joint' ? 14 : 7;
-  const varStart = currentChartCompte==='joint' ? 48 : 45;
+  const offset = currentChartCompte==='Compte Joint' ? 14 : 7;
+  const varStart = currentChartCompte==='Compte Joint' ? 48 : 45;
 
   const now = new Date();
   const year = now.getFullYear();
@@ -595,7 +712,7 @@ async function renderChart(mois) {
     } else if (comparaison === 'prev_month' && navigator.onLine) {
       // Charger le mois précédent en arrière-plan
       try {
-        const data = await sheetsGet(`${compMois}!A13:T120`);
+        const data = await sheetsGet(`${compMois}!A13:AA120`);
         if (data?.values) {
           sheetData[compMois] = data.values;
           localStorage.setItem('cache_rows_'+compMois, JSON.stringify(data.values));
@@ -713,40 +830,63 @@ async function loadAnnuel() {
         const cached = localStorage.getItem('cache_rows_'+mois);
         if (cached) { rows = JSON.parse(cached); sheetData[mois] = rows; }
         else if (navigator.onLine) {
-          const data = await sheetsGet(`${mois}!A13:T160`);
+          const data = await sheetsGet(`${mois}!A13:AA160`);
           if (data && data.values) { rows = data.values; sheetData[mois] = rows; localStorage.setItem('cache_rows_'+mois, JSON.stringify(rows)); }
         }
       }
       if (!rows) { results.push({ mois, revJoint:0, depJoint:0, revPerso:0, depPerso:0, err:true }); continue; }
 
-      let revJoint=0, depJoint=0, revPerso=0, depPerso=0;
+      
+let revJoint=0, depJoint=0,
+    revPerso=0, depPerso=0,
+    revElodie=0, depElodie=0;
+
       const today = new Date(); today.setHours(23,59,59,0);
       rows.forEach((row,i) => {
         const mntJ = parseFloat(row[16])||0;
         const mntP = parseFloat(row[9])||0;
         const dateJ = parseDate(row[14]);
         const dateP = parseDate(row[7]);
+        const mntE = parseFloat(row[25])||0;   // X → montant
+        const dateE = parseDate(row[23]);      // X → date
 
         if (i===0) {
           if (mntJ !== 0) revJoint += mntJ;
           if (mntP !== 0) revPerso += mntP;
+          if (mntE !== 0) revElodie += mntE;
         }
         if (i>=1 && i<=17) {
           if (mntJ > 0 && dateJ && dateJ <= today) revJoint += mntJ;
           if (mntP > 0 && dateP && dateP <= today) revPerso += mntP;
+          if (mntE > 0 && dateE && dateE <= today) revElodie += mntE;
         }
         if (i>=20 && i<=42) {
           if (mntJ > 0 && dateJ && dateJ <= today) depJoint += mntJ;
           if (mntP > 0 && dateP && dateP <= today) depPerso += mntP;
+          if (mntE > 0 && dateE && dateE <= today) depElodie += mntE;
         }
         if (i>=48 && i<=135) {
           if (mntJ > 0 && dateJ && dateJ <= today) depJoint += mntJ;
         }
         if (i>=45 && i<=135) {
           if (mntP > 0 && dateP && dateP <= today) depPerso += mntP;
+          if (mntE > 0 && dateE && dateE <= today) depElodie += mntE;
         }
       });
-      results.push({ mois, revJoint, depJoint, soldeJoint:revJoint-depJoint, revPerso, depPerso, soldePerso:revPerso-depPerso });
+      
+results.push({
+  mois,
+  revJoint,
+  depJoint,
+  soldeJoint: revJoint - depJoint,
+
+  revPerso: USER_MODE === 'ELODIE' ? revElodie : revPerso,
+  depPerso: USER_MODE === 'ELODIE' ? depElodie : depPerso,
+  soldePerso: USER_MODE === 'ELODIE'
+    ? (revElodie - depElodie)
+    : (revPerso - depPerso)
+});
+
     } catch(e) {
       results.push({ mois, revJoint:0, depJoint:0, revPerso:0, depPerso:0, err:true });
     }
@@ -757,11 +897,15 @@ async function loadAnnuel() {
   const totRevP = results.reduce((s,r)=>s+r.revPerso,0);
   const totDepP = results.reduce((s,r)=>s+r.depPerso,0);
 
-  container.innerHTML = `
-    <div class="annuel-tabs">
-      <div class="annuel-tab active" onclick="switchAnnuelTab('joint',this)">Compte Joint</div>
-      <div class="annuel-tab" onclick="switchAnnuelTab('perso',this)">Compte Perso</div>
-    </div>
+  
+container.innerHTML = `
+  <div class="annuel-tabs">
+    <div class="annuel-tab active" onclick="switchAnnuelTab('joint',this)">Compte Joint</div>
+
+<div class="annuel-tab" onclick="switchAnnuelTab('perso',this)">Compte Perso</div>
+
+  </div>
+
     <div id="annuel-joint"><div class="annuel-table">
       <div class="annuel-header"><span>Mois</span><span>Revenus</span><span>Dépenses</span><span>Solde</span></div>
       ${results.map(r=>`<div class="annuel-row ${r.err?'annuel-err':''}" onclick="jumpToMonth('${r.mois}')"><span class="annuel-mois">${r.mois.substring(0,3)}</span><span class="annuel-rev">${r.err?'—':fmt(r.revJoint)}</span><span class="annuel-dep">${r.err?'—':fmt(r.depJoint)}</span><span class="annuel-sol ${(r.soldeJoint||0)>=0?'positive':'negative'}">${r.err?'—':fmt(r.soldeJoint)}</span></div>`).join('')}
@@ -1174,17 +1318,23 @@ function openModal(){
   document.getElementById('input-montant').value='';
   document.getElementById('input-libelle').value='';
   updateTypeChoicesForCompte();
+  applyUserMode();
 }
+
+
 function closeModal(){document.getElementById('modal').classList.remove('open');}
 
 
 function updateTypeChoicesForCompte() {
   const compte = getChipVal('chips-compte');
-  const allowedTypes = {
-    'Compte Joint': ['Charge variable', 'Charge fixe', 'Revenu'],
-    'Compte Perso': ['Charge variable', 'Charge fixe', 'Revenu'],
-    'Épargne': ['Revenu', 'Dépense']
-  };
+
+const allowedTypes = {
+  'Compte Joint': ['Charge variable', 'Charge fixe', 'Revenu'],
+  'Compte Perso': ['Charge variable', 'Charge fixe', 'Revenu'],
+  'Compte Perso Elodie': ['Charge variable', 'Charge fixe', 'Revenu'],
+  'Épargne': ['Revenu', 'Dépense']
+};
+
 
   const allowed = allowedTypes[compte] || [];
   const chips = Array.from(document.querySelectorAll('#chips-type .chip'));
@@ -1204,6 +1354,29 @@ function updateTypeChoicesForCompte() {
   }
 }
 
+function applyUserMode() {
+
+  const chips = document.querySelectorAll('#chips-compte .chip');
+
+  chips.forEach(chip => {
+
+    const val = chip.dataset.val;
+
+    if (USER_MODE === 'TOI') {
+      if (val === 'Compte Perso Elodie') {
+        chip.style.display = 'none';
+      }
+    }
+
+    if (USER_MODE === 'ELODIE') {
+      if (val === 'Compte Perso' || val === 'Épargne') {
+        chip.style.display = 'none';
+      }
+    }
+
+  });
+
+}
 
 async function clearCacheAndReconnect() {
   const ok = confirm("Cette action va vider le cache local, supprimer la session Google actuelle et relancer une connexion propre.\n\nContinuer ?");
@@ -1278,13 +1451,28 @@ document.querySelectorAll('.nav-btn').forEach(btn=>{
   });
 });
 
-document.querySelectorAll('.compte-tab').forEach(tab=>{
-  tab.addEventListener('click',()=>{
-    document.querySelectorAll('.compte-tab').forEach(t=>t.classList.remove('active'));
-    tab.classList.add('active'); currentCompteFilter=tab.dataset.compte;
-    const mois=getViewMonthName();
-    if(sheetData[mois]) renderTransactions(sheetData[mois]);
+document.querySelectorAll('.compte-tab').forEach(tab => {
+
+  tab.addEventListener('click', () => {
+
+    const val = tab.dataset.compte;
+
+    // 🔐 sécurité utilisateur
+    if (USER_MODE === 'ELODIE' && (val === 'Compte Perso' || val === 'Épargne')) {
+      showToast("Accès non autorisé");
+      return;
+    }
+
+    document.querySelectorAll('.compte-tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+
+    currentCompteFilter = val;
+
+    const mois = getViewMonthName();
+    if (sheetData[mois]) renderTransactions(sheetData[mois]);
+
   });
+
 });
 
 document.querySelectorAll('#chart-tabs .chart-tab').forEach(tab=>{
@@ -1329,6 +1517,38 @@ if (inputLib) {
 // Détection offline/online
 window.addEventListener('online',()=>{ showToast('✅ Connexion rétablie'); sheetData={}; loadMonth(getViewMonthName()); });
 window.addEventListener('offline',()=>{ showToast('📡 Hors-ligne — données en cache',3000); });
+
+function applyUserTabs() {
+
+  document.querySelectorAll('.compte-tab').forEach(tab => {
+
+    const val = tab.dataset.compte;
+
+    if (USER_MODE === 'TOI') {
+
+      // cacher Perso Elodie
+      if (val === 'Compte Perso Elodie') {
+        tab.style.display = 'none';
+      } else {
+        tab.style.display = '';
+      }
+
+    }
+
+    if (USER_MODE === 'ELODIE') {
+
+      // cacher TON perso + épargne
+      if (val === 'Compte Perso' || val === 'Épargne') {
+        tab.style.display = 'none';
+      } else {
+        tab.style.display = '';
+      }
+
+    }
+
+  });
+
+}
 
 // ============================================================
 // INIT
